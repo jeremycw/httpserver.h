@@ -1,7 +1,9 @@
 #ifndef HTTP_REQUEST_H
 #define HTTP_REQUEST_H
 
+#ifndef HTTPSERVER_H
 #include "http_server.h"
+#endif
 
 typedef struct {
   char const * buf;

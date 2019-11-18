@@ -1,5 +1,7 @@
 #include <string.h>
+#ifndef HTTPSERVER_H
 #include "http_request.h"
+#endif
 
 http_string_t http_get_token_string(http_request_t* request, int token_type) {
   for (int i = 0; i < request->tokens.size; i++) {

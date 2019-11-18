@@ -1,4 +1,6 @@
+#ifndef HTTPSERVER_H
 #include "http_parser.h"
+#endif
 
 #define HTTP_LWS 2
 #define HTTP_CR 3

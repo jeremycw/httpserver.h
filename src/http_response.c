@@ -1,9 +1,11 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#ifndef HTTPSERVER_H
 #include "http_server.h"
 #include "fiber.h"
 #include "http_response.h"
+#endif
 
 #define RESPONSE_BUF_SIZE 512
 

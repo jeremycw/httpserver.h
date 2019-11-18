@@ -1,4 +1,9 @@
+.PHONY: test
+
 all: httpserver.h
+
+http-server: test/main.c httpserver.h
+	$(CC) -O3 -lev test/main.c -o http-server
 
 httpserver.h: src/http_server.c $(wildcard: src/*.c) $(wildcard: src/*.h)
 	./concat.sh

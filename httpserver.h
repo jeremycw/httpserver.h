@@ -1,126 +1,6 @@
 #ifndef HTTPSERVER_H
 #define HTTPSERVER_H
-#ifndef HTTP_SERVER_H
-#define HTTP_SERVER_H
-
-#include <netdb.h>
-#include "fiber.h"
-#include "varray.h"
-#include "http_parser.h"
-
-struct http_response {
-  char* buf;
-  int len;
-  int flags;
-};
-
-varray_decl(http_token_t);
-
-typedef struct {
-  http_parser_t parser;
-  int socket;
-  char* buf;
-  int bytes;
-  int capacity;
-  struct http_server_s* server;
-  fiber_t fiber;
-  http_token_t token;
-  varray_t(http_token_t) tokens;
-  char flags;
-  struct http_response response;
-} http_request_t;
-
-typedef struct http_server_s {
-  int socket;
-  int port;
-  socklen_t len;
-  void (*request_handler)(http_request_t*);
-  struct sockaddr_in addr;
-  ev_timer timer;
-  char* date;
-} http_server_t;
-
-fiber_decl(http_server_listen, http_server_t*);
-fiber_decl(http_session, http_request_t*);
-
-struct ev_loop* http_server_loop();
-int http_server_listen(http_server_t* serv);
-void http_server_init(http_server_t* serv, int port, void (*handler)(http_request_t*));
-
-#endif
-#ifndef HTTP_REQUEST_H
-#define HTTP_REQUEST_H
-
-#include "http_server.h"
-
-typedef struct {
-  char const * buf;
-  int len;
-} http_string_t;
-
-http_string_t http_request_method(http_request_t* request);
-http_string_t http_request_target(http_request_t* request);
-http_string_t http_request_body(http_request_t* request);
-http_string_t http_request_header(http_request_t* request, char const * key);
-
-#endif
-#ifndef HTTP_RESPONSE_H
-#define HTTP_RESPONSE_H
-
-#define HTTP_RESPONSE_DEFERRED 0x1
-#define HTTP_RESPONSE_KEEP_ALIVE 0x2
-
-typedef struct http_header_s {
-  char const * key;
-  char const * value;
-  struct http_header_s* next;
-} http_header_t;
-
-typedef struct {
-  http_header_t* headers;
-  char* body;
-  int content_length;
-  int status;
-} http_response_t;
-
-void http_response_status(http_response_t* response, int status);
-void http_response_header(http_response_t* response, char const * key, char const * value);
-void http_response_body(http_response_t* response, char* body, int length);
-void http_respond(http_request_t* session, http_response_t* response);
-void http_response_end(http_request_t* session);
-
-#endif
-#ifndef HTTP_PARSER_H
-#define HTTP_PARSER_H
-
-#define HTTP_METHOD 0
-#define HTTP_TARGET 1
-#define HTTP_VERSION 2
-#define HTTP_HEADER_KEY 3
-#define HTTP_HEADER_VALUE 4
-#define HTTP_NONE 6
-#define HTTP_BODY 7
-
-typedef struct {
-  int index;
-  int len;
-  int type;
-} http_token_t;
-
-typedef struct {
-  int content_length;
-  int len;
-  int token_start_index;
-  int start;
-  int content_length_i;
-  char in_content_length;
-  char state;
-  char sub_state;
-} http_parser_t;
-
-http_token_t http_parse(http_parser_t* parser, char* input, int n);
-
-#endif
+#define FIBER_IMPL
 #ifndef FIBER_H
 #define FIBER_H
 
@@ -283,6 +163,131 @@ await_t fiber_await(int fd, int type, float timeout) {
   varray_##type##_init(varray, capacity);
 
 #endif
+#ifndef HTTP_PARSER_H
+#define HTTP_PARSER_H
+
+#define HTTP_METHOD 0
+#define HTTP_TARGET 1
+#define HTTP_VERSION 2
+#define HTTP_HEADER_KEY 3
+#define HTTP_HEADER_VALUE 4
+#define HTTP_NONE 6
+#define HTTP_BODY 7
+
+typedef struct {
+  int index;
+  int len;
+  int type;
+} http_token_t;
+
+typedef struct {
+  int content_length;
+  int len;
+  int token_start_index;
+  int start;
+  int content_length_i;
+  char in_content_length;
+  char state;
+  char sub_state;
+} http_parser_t;
+
+http_token_t http_parse(http_parser_t* parser, char* input, int n);
+
+#endif
+#ifndef HTTP_SERVER_H
+#define HTTP_SERVER_H
+
+#include <netdb.h>
+#ifndef HTTPSERVER_H
+#include "fiber.h"
+#include "varray.h"
+#include "http_parser.h"
+#endif
+
+struct http_response {
+  char* buf;
+  int len;
+  int flags;
+};
+
+varray_decl(http_token_t);
+
+typedef struct {
+  http_parser_t parser;
+  int socket;
+  char* buf;
+  int bytes;
+  int capacity;
+  struct http_server_s* server;
+  fiber_t fiber;
+  http_token_t token;
+  varray_t(http_token_t) tokens;
+  char flags;
+  struct http_response response;
+} http_request_t;
+
+typedef struct http_server_s {
+  int socket;
+  int port;
+  socklen_t len;
+  void (*request_handler)(http_request_t*);
+  struct sockaddr_in addr;
+  ev_timer timer;
+  char* date;
+} http_server_t;
+
+fiber_decl(http_server_listen, http_server_t*);
+fiber_decl(http_session, http_request_t*);
+
+struct ev_loop* http_server_loop();
+int http_server_listen(http_server_t* serv);
+void http_server_init(http_server_t* serv, int port, void (*handler)(http_request_t*));
+
+#endif
+#ifndef HTTP_REQUEST_H
+#define HTTP_REQUEST_H
+
+#ifndef HTTPSERVER_H
+#include "http_server.h"
+#endif
+
+typedef struct {
+  char const * buf;
+  int len;
+} http_string_t;
+
+http_string_t http_request_method(http_request_t* request);
+http_string_t http_request_target(http_request_t* request);
+http_string_t http_request_body(http_request_t* request);
+http_string_t http_request_header(http_request_t* request, char const * key);
+
+#endif
+#ifndef HTTP_RESPONSE_H
+#define HTTP_RESPONSE_H
+
+#define HTTP_RESPONSE_DEFERRED 0x1
+#define HTTP_RESPONSE_KEEP_ALIVE 0x2
+
+typedef struct http_header_s {
+  char const * key;
+  char const * value;
+  struct http_header_s* next;
+} http_header_t;
+
+typedef struct {
+  http_header_t* headers;
+  char* body;
+  int content_length;
+  int status;
+} http_response_t;
+
+void http_response_status(http_response_t* response, int status);
+void http_response_header(http_response_t* response, char const * key, char const * value);
+void http_response_body(http_response_t* response, char* body, int length);
+void http_respond(http_request_t* session, http_response_t* response);
+void http_response_end(http_request_t* session);
+
+#endif
 #ifdef HTTPSERVER_IMPL
 
 
@@ -293,6 +298,8 @@ await_t fiber_await(int fd, int type, float timeout) {
 #include <errno.h>
 #include <netdb.h>
 #include <unistd.h>
+
+#ifndef HTTPSERVER_H
 #include "http_parser.h"
 #include "varray.h"
 #include "http_server.h"
@@ -300,6 +307,7 @@ await_t fiber_await(int fd, int type, float timeout) {
 #include "http_request.h"
 #define FIBER_IMPL
 #include "fiber.h"
+#endif
 
 #define BUF_SIZE 1024
 
@@ -531,7 +539,9 @@ struct ev_loop* http_server_loop() {
 
 
 #include <string.h>
+#ifndef HTTPSERVER_H
 #include "http_request.h"
+#endif
 
 http_string_t http_get_token_string(http_request_t* request, int token_type) {
   for (int i = 0; i < request->tokens.size; i++) {
@@ -577,9 +587,11 @@ http_string_t http_request_header(http_request_t* request, char const * key) {
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#ifndef HTTPSERVER_H
 #include "http_server.h"
 #include "fiber.h"
 #include "http_response.h"
+#endif
 
 #define RESPONSE_BUF_SIZE 512
 
@@ -742,7 +754,9 @@ void http_respond(http_request_t* session, http_response_t* response) {
   session->response.len = size;
 }
 
+#ifndef HTTPSERVER_H
 #include "http_parser.h"
+#endif
 
 #define HTTP_LWS 2
 #define HTTP_CR 3

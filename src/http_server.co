@@ -7,6 +7,8 @@
 #include <errno.h>
 #include <netdb.h>
 #include <unistd.h>
+
+#ifndef HTTPSERVER_H
 #include "http_parser.h"
 #include "varray.h"
 #include "http_server.h"
@@ -14,6 +16,7 @@
 #include "http_request.h"
 #define FIBER_IMPL
 #include "fiber.h"
+#endif
 
 #define BUF_SIZE 1024
 

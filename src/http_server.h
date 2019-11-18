@@ -2,9 +2,11 @@
 #define HTTP_SERVER_H
 
 #include <netdb.h>
+#ifndef HTTPSERVER_H
 #include "fiber.h"
 #include "varray.h"
 #include "http_parser.h"
+#endif
 
 struct http_response {
   char* buf;
