@@ -11,7 +11,7 @@ httpserver.h: src/http_server.c $(wildcard: src/*.c) $(wildcard: src/*.h)
 src/http_server.c: src/http_server.co corc/src/corc
 	corc/src/corc < src/http_server.co > src/http_server.c
 
-corc/src/corc: 
+corc/src/corc: corc
 	cd corc/src; make
 
 corc:
