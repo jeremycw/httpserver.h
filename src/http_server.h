@@ -8,12 +8,6 @@
 #include "http_parser.h"
 #endif
 
-struct http_response {
-  char* buf;
-  int len;
-  int flags;
-};
-
 varray_decl(http_token_t);
 
 typedef struct {
@@ -27,7 +21,6 @@ typedef struct {
   http_token_t token;
   varray_t(http_token_t) tokens;
   char flags;
-  struct http_response response;
 } http_request_t;
 
 typedef struct http_server_s {

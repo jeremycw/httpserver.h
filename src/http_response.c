@@ -94,17 +94,6 @@ void http_response_body(http_response_t* response, char* body, int length) {
   response->content_length = length;
 }
 
-void http_response_defer(http_request_t* session) {
-  session->response.flags |= HTTP_RESPONSE_DEFERRED;
-}
-
-void http_response_end(http_request_t* session) {
-  if (session->response.flags & HTTP_RESPONSE_DEFERRED) {
-    session->response.flags &= ~HTTP_RESPONSE_DEFERRED;
-    fiber_resume(http_session, session->fiber);
-  }
-}
-
 #define buffer_bookkeeping(printf) \
   printf \
   if (bytes + size > capacity) { \
@@ -121,7 +110,7 @@ void http_respond(http_request_t* session, http_response_t* response) {
   int capacity = RESPONSE_BUF_SIZE;
   int remaining = RESPONSE_BUF_SIZE;
   int size = 0;
-  if (session->response.flags & HTTP_RESPONSE_KEEP_ALIVE) {
+  if (session->flags & HTTP_RESPONSE_KEEP_ALIVE) {
     http_response_header(response, "Connection", "keep-alive");
   }
 
@@ -164,7 +153,14 @@ void http_respond(http_request_t* session, http_response_t* response) {
     header = tmp->next;
     free(tmp);
   }
-  session->response.buf = buf;
-  session->response.len = size;
+  free(session->buf);
+  session->buf = buf;
+  session->bytes = 0;
+  session->capacity = size;
+  session->flags |= HTTP_RESPONSE_READY;
+  if (session->flags & HTTP_RESPONSE_PAUSED) {
+    session->flags &= ~HTTP_RESPONSE_PAUSED;
+    fiber_resume(http_session, session->fiber);
+  }
 }
 

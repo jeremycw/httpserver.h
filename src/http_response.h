@@ -1,8 +1,9 @@
 #ifndef HTTP_RESPONSE_H
 #define HTTP_RESPONSE_H
 
-#define HTTP_RESPONSE_DEFERRED 0x1
-#define HTTP_RESPONSE_KEEP_ALIVE 0x2
+#define HTTP_RESPONSE_READY 0x4
+#define HTTP_RESPONSE_KEEP_ALIVE 0x8
+#define HTTP_RESPONSE_PAUSED 0x10
 
 typedef struct http_header_s {
   char const * key;

@@ -38,7 +38,6 @@ void accept_connections(http_server_t* arg) {
     if (sock > 0) {
       http_request_t* session = malloc(sizeof(http_request_t));
       *session = (http_request_t) { .socket = sock, .server = arg };
-      varray_init(http_token_t, &session->tokens, 32);
       int flags = fcntl(sock, F_GETFL, 0);
       fcntl(sock, F_SETFL, flags | O_NONBLOCK);
       fiber_spawn(http_session, session, session->fiber);
@@ -65,11 +64,6 @@ void http_listen(http_server_t* serv) {
 }
 
 void read_client_socket(http_request_t* session) {
-  errno = 0;
-  if (!session->buf) {
-    session->buf = malloc(BUF_SIZE);
-    session->capacity = BUF_SIZE;
-  }
   int bytes;
   do {
     bytes = read(
@@ -90,20 +84,18 @@ void read_client_socket(http_request_t* session) {
 }
 
 void write_client_socket(http_request_t* session) {
-  errno = 0;
-  write(session->socket, session->response.buf, session->response.len);
+  session->bytes += write(session->socket, session->buf + session->bytes, session->capacity);
 }
 
 void nop(http_request_t* session) { }
 
 void free_buffer(http_request_t* session) {
   free(session->buf);
-  free(session->response.buf);
+  free(session->tokens.buf);
 }
 
 void end_session(http_request_t* session) {
   close(session->socket);
-  free(session->tokens.buf);
   free(session);
 }
 
@@ -122,13 +114,31 @@ void parse_tokens(http_request_t* session) {
 }
 
 void init_session(http_request_t* session) {
-  session->response = (struct http_response){ };
-  session->response.flags = HTTP_RESPONSE_KEEP_ALIVE;
+  session->flags |= HTTP_RESPONSE_KEEP_ALIVE;
   session->parser = (http_parser_t){ };
   session->bytes = 0;
   session->buf = NULL;
   session->token = (http_token_t){ .type = HTTP_NONE };
   session->tokens.size = 0;
+  session->buf = malloc(BUF_SIZE);
+  session->capacity = BUF_SIZE;
+  varray_init(http_token_t, &session->tokens, 32);
+}
+
+void handle_timeout(http_request_t* request) {
+  if (fibererror) {
+    FLAG_CLEAR(request->flags, ACTIVE);
+    fibererror = 0;
+  }
+}
+
+int parsing_headers(http_request_t* request) {
+  return request->token.type != HTTP_BODY && FLAG_CHECK(request->flags, ACTIVE);
+}
+
+int reading_body(http_request_t* request) {
+  int size = request->token.index + request->token.len;
+  return request->bytes < size && FLAG_CHECK(request->flags, ACTIVE);
 }
 
 %}
@@ -145,43 +155,40 @@ coroutine (await_t) http_session(http_request_t*) {
   {% FLAG_SET(arg->flags, ACTIVE); %}
   while {% FLAG_CHECK(arg->flags, ACTIVE) %} {
     init_session;
-    while {% arg->token.type != HTTP_BODY && FLAG_CHECK(arg->flags, ACTIVE) %} {
-      call read_socket;
+    read_client_socket;
+    parse_tokens;
+    while parsing_headers {
+      //TODO if bytes read == 0 free buffers before yield
+      yield {% fiber_await(arg->socket, EV_READ, 20.f); %}; //await readability
+      handle_timeout;
+      read_client_socket;
       parse_tokens;
     }
     if {% arg->token.len > 0 %} {
-      while {% arg->bytes < arg->token.index + arg->token.len && FLAG_CHECK(arg->flags, ACTIVE) %} {
-        call read_socket;
+      read_client_socket;
+      while reading_body {
+        yield {% fiber_await(arg->socket, EV_READ, 20.f); %}; //await readability
+        handle_timeout;
+        read_client_socket;
       }
     }
     if {% FLAG_CHECK(arg->flags, ACTIVE) %} {
       {% arg->server->request_handler(arg); %}
-      if {% FLAG_CHECK(arg->response.flags, HTTP_RESPONSE_DEFERRED) %} {
+      if {% !FLAG_CHECK(arg->flags, HTTP_RESPONSE_READY) %} {
+        {% FLAG_SET(arg->flags, HTTP_RESPONSE_PAUSED); %}
         yield {% fiber_pause(); %};
         nop;
       }
       write_client_socket;
-      while {% errno == EWOULDBLOCK %} {
+      while {% arg->bytes != arg->capacity %} {
         yield {% fiber_await(arg->socket, EV_WRITE, 20.f); %}; //await writeability
+        handle_timeout;
         write_client_socket;
       }
     }
     free_buffer;
   }
   end_session;
-}
-
-sub read_socket {
-  read_client_socket;
-  while {% !FLAG_CHECK(arg->flags, READY) && FLAG_CHECK(arg->flags, ACTIVE) %} {
-    yield {% fiber_await(arg->socket, EV_READ, 20.f); %}; //await readability
-    if {% fibererror %} {
-      {% FLAG_CLEAR(arg->flags, ACTIVE); %}
-      {% fibererror = 0; %}
-    } else {
-      read_client_socket;
-    }
-  }
 }
 
 {%

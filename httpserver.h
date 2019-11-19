@@ -204,12 +204,6 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n);
 #include "http_parser.h"
 #endif
 
-struct http_response {
-  char* buf;
-  int len;
-  int flags;
-};
-
 varray_decl(http_token_t);
 
 typedef struct {
@@ -223,7 +217,6 @@ typedef struct {
   http_token_t token;
   varray_t(http_token_t) tokens;
   char flags;
-  struct http_response response;
 } http_request_t;
 
 typedef struct http_server_s {
@@ -265,8 +258,9 @@ http_string_t http_request_header(http_request_t* request, char const * key);
 #ifndef HTTP_RESPONSE_H
 #define HTTP_RESPONSE_H
 
-#define HTTP_RESPONSE_DEFERRED 0x1
-#define HTTP_RESPONSE_KEEP_ALIVE 0x2
+#define HTTP_RESPONSE_READY 0x4
+#define HTTP_RESPONSE_KEEP_ALIVE 0x8
+#define HTTP_RESPONSE_PAUSED 0x10
 
 typedef struct http_header_s {
   char const * key;
@@ -329,7 +323,6 @@ void accept_connections(http_server_t* arg) {
     if (sock > 0) {
       http_request_t* session = malloc(sizeof(http_request_t));
       *session = (http_request_t) { .socket = sock, .server = arg };
-      varray_init(http_token_t, &session->tokens, 32);
       int flags = fcntl(sock, F_GETFL, 0);
       fcntl(sock, F_SETFL, flags | O_NONBLOCK);
       fiber_spawn(http_session, session, session->fiber);
@@ -356,11 +349,6 @@ void http_listen(http_server_t* serv) {
 }
 
 void read_client_socket(http_request_t* session) {
-  errno = 0;
-  if (!session->buf) {
-    session->buf = malloc(BUF_SIZE);
-    session->capacity = BUF_SIZE;
-  }
   int bytes;
   do {
     bytes = read(
@@ -381,20 +369,18 @@ void read_client_socket(http_request_t* session) {
 }
 
 void write_client_socket(http_request_t* session) {
-  errno = 0;
-  write(session->socket, session->response.buf, session->response.len);
+  session->bytes += write(session->socket, session->buf + session->bytes, session->capacity);
 }
 
 void nop(http_request_t* session) { }
 
 void free_buffer(http_request_t* session) {
   free(session->buf);
-  free(session->response.buf);
+  free(session->tokens.buf);
 }
 
 void end_session(http_request_t* session) {
   close(session->socket);
-  free(session->tokens.buf);
   free(session);
 }
 
@@ -413,13 +399,31 @@ void parse_tokens(http_request_t* session) {
 }
 
 void init_session(http_request_t* session) {
-  session->response = (struct http_response){ };
-  session->response.flags = HTTP_RESPONSE_KEEP_ALIVE;
+  session->flags |= HTTP_RESPONSE_KEEP_ALIVE;
   session->parser = (http_parser_t){ };
   session->bytes = 0;
   session->buf = NULL;
   session->token = (http_token_t){ .type = HTTP_NONE };
   session->tokens.size = 0;
+  session->buf = malloc(BUF_SIZE);
+  session->capacity = BUF_SIZE;
+  varray_init(http_token_t, &session->tokens, 32);
+}
+
+void handle_timeout(http_request_t* request) {
+  if (fibererror) {
+    FLAG_CLEAR(request->flags, ACTIVE);
+    fibererror = 0;
+  }
+}
+
+int parsing_headers(http_request_t* request) {
+  return request->token.type != HTTP_BODY && FLAG_CHECK(request->flags, ACTIVE);
+}
+
+int reading_body(http_request_t* request) {
+  int size = request->token.index + request->token.len;
+  return request->bytes < size && FLAG_CHECK(request->flags, ACTIVE);
 }
 
 
@@ -444,52 +448,41 @@ case 0:
  FLAG_SET(arg->flags, ACTIVE); 
 while ( FLAG_CHECK(arg->flags, ACTIVE) ) {
 init_session(arg);
-while ( arg->token.type != HTTP_BODY && FLAG_CHECK(arg->flags, ACTIVE) ) {
 read_client_socket(arg);
-while ( !FLAG_CHECK(arg->flags, READY) && FLAG_CHECK(arg->flags, ACTIVE) ) {
-*state = 23;
+parse_tokens(arg);
+while (parsing_headers(arg)) {
+*state = 11;
 return  fiber_await(arg->socket, EV_READ, 20.f); 
-case 23:
-if ( fibererror ) {
- FLAG_CLEAR(arg->flags, ACTIVE); 
- fibererror = 0; 
-}
-else {
+case 11:
+handle_timeout(arg);
 read_client_socket(arg);
-}
-}
 parse_tokens(arg);
 }
 if ( arg->token.len > 0 ) {
-while ( arg->bytes < arg->token.index + arg->token.len && FLAG_CHECK(arg->flags, ACTIVE) ) {
 read_client_socket(arg);
-while ( !FLAG_CHECK(arg->flags, READY) && FLAG_CHECK(arg->flags, ACTIVE) ) {
-*state = 33;
+while (reading_body(arg)) {
+*state = 12;
 return  fiber_await(arg->socket, EV_READ, 20.f); 
-case 33:
-if ( fibererror ) {
- FLAG_CLEAR(arg->flags, ACTIVE); 
- fibererror = 0; 
-}
-else {
+case 12:
+handle_timeout(arg);
 read_client_socket(arg);
-}
-}
 }
 }
 if ( FLAG_CHECK(arg->flags, ACTIVE) ) {
  arg->server->request_handler(arg); 
-if ( FLAG_CHECK(arg->response.flags, HTTP_RESPONSE_DEFERRED) ) {
-*state = 11;
+if ( !FLAG_CHECK(arg->flags, HTTP_RESPONSE_READY) ) {
+ FLAG_SET(arg->flags, HTTP_RESPONSE_PAUSED); 
+*state = 13;
 return  fiber_pause(); 
-case 11:
+case 13:
 nop(arg);
 }
 write_client_socket(arg);
-while ( errno == EWOULDBLOCK ) {
-*state = 12;
+while ( arg->bytes != arg->capacity ) {
+*state = 14;
 return  fiber_await(arg->socket, EV_WRITE, 20.f); 
-case 12:
+case 14:
+handle_timeout(arg);
 write_client_socket(arg);
 }
 }
@@ -542,6 +535,7 @@ struct ev_loop* http_server_loop() {
 #ifndef HTTPSERVER_H
 #include "http_request.h"
 #endif
+
 
 http_string_t http_get_token_string(http_request_t* request, int token_type) {
   for (int i = 0; i < request->tokens.size; i++) {
@@ -680,17 +674,6 @@ void http_response_body(http_response_t* response, char* body, int length) {
   response->content_length = length;
 }
 
-void http_response_defer(http_request_t* session) {
-  session->response.flags |= HTTP_RESPONSE_DEFERRED;
-}
-
-void http_response_end(http_request_t* session) {
-  if (session->response.flags & HTTP_RESPONSE_DEFERRED) {
-    session->response.flags &= ~HTTP_RESPONSE_DEFERRED;
-    fiber_resume(http_session, session->fiber);
-  }
-}
-
 #define buffer_bookkeeping(printf) \
   printf \
   if (bytes + size > capacity) { \
@@ -707,7 +690,7 @@ void http_respond(http_request_t* session, http_response_t* response) {
   int capacity = RESPONSE_BUF_SIZE;
   int remaining = RESPONSE_BUF_SIZE;
   int size = 0;
-  if (session->response.flags & HTTP_RESPONSE_KEEP_ALIVE) {
+  if (session->flags & HTTP_RESPONSE_KEEP_ALIVE) {
     http_response_header(response, "Connection", "keep-alive");
   }
 
@@ -750,8 +733,15 @@ void http_respond(http_request_t* session, http_response_t* response) {
     header = tmp->next;
     free(tmp);
   }
-  session->response.buf = buf;
-  session->response.len = size;
+  free(session->buf);
+  session->buf = buf;
+  session->bytes = 0;
+  session->capacity = size;
+  session->flags |= HTTP_RESPONSE_READY;
+  if (session->flags & HTTP_RESPONSE_PAUSED) {
+    session->flags &= ~HTTP_RESPONSE_PAUSED;
+    fiber_resume(http_session, session->fiber);
+  }
 }
 
 #ifndef HTTPSERVER_H
