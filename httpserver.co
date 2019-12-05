@@ -1,4 +1,4 @@
-
+{%
 
 #ifndef HTTPSERVER_H
 #define HTTPSERVER_H
@@ -509,78 +509,57 @@ int reading_body(http_request_t* request) {
   return request->bytes < size && HTTP_FLAG_CHECK(request->flags, HTTP_ACTIVE);
 }
 
+%}
 
-await_t call_http_server_listen(int* state, http_server_t* arg) {
-switch (*state) {
-case 0:
-http_listen(arg);
-while ( 1 ) {
-*state = 10;
-return  fiber_await(arg->socket, EV_READ, -1.f); 
-case 10:
-accept_connections(arg);
-}
-}
-*state = -1;
-await_t ret;
-return ret;
-}
-await_t call_http_session(int* state, http_request_t* arg) {
-switch (*state) {
-case 0:
- HTTP_FLAG_SET(arg->flags, HTTP_ACTIVE); 
-while ( HTTP_FLAG_CHECK(arg->flags, HTTP_ACTIVE) ) {
-init_session(arg);
-read_client_socket(arg);
-parse_tokens(arg);
-while (parsing_headers(arg)) {
-if ( arg->bytes == 0 ) {
-free_buffer(arg);
-}
-*state = 11;
-return  fiber_await(arg->socket, EV_READ, arg->bytes == 0 ? 120.f : 20.f); 
-case 11:
-handle_timeout(arg);
-read_client_socket(arg);
-parse_tokens(arg);
-}
-if ( arg->token.len > 0 ) {
-read_client_socket(arg);
-while (reading_body(arg)) {
-*state = 12;
-return  fiber_await(arg->socket, EV_READ, 20.f); 
-case 12:
-handle_timeout(arg);
-read_client_socket(arg);
-}
-}
-if ( HTTP_FLAG_CHECK(arg->flags, HTTP_ACTIVE) ) {
- arg->server->request_handler(arg); 
-if ( !HTTP_FLAG_CHECK(arg->flags, HTTP_RESPONSE_READY) ) {
- HTTP_FLAG_SET(arg->flags, HTTP_RESPONSE_PAUSED); 
-*state = 13;
-return  fiber_pause(); 
-case 13:
-nop(arg);
-}
-write_client_socket(arg);
-while ( arg->bytes != arg->capacity ) {
-*state = 14;
-return  fiber_await(arg->socket, EV_WRITE, 20.f); 
-case 14:
-handle_timeout(arg);
-write_client_socket(arg);
-}
-}
-free_buffer(arg);
-}
-end_session(arg);
-}
-*state = -1;
-await_t ret;
-return ret;
+coroutine (await_t) http_server_listen(http_server_t*) {
+  http_listen;
+  while {% 1 %} {
+    yield {% fiber_await(arg->socket, EV_READ, -1.f); %}; //wait for accept readability
+    accept_connections;
+  }
 }
 
+coroutine (await_t) http_session(http_request_t*) {
+  {% HTTP_FLAG_SET(arg->flags, HTTP_ACTIVE); %}
+  while {% HTTP_FLAG_CHECK(arg->flags, HTTP_ACTIVE) %} {
+    init_session;
+    read_client_socket;
+    parse_tokens;
+    while parsing_headers {
+      if {% arg->bytes == 0 %} { free_buffer; } //free buffers while keeping connection alive
+      yield {% fiber_await(arg->socket, EV_READ, arg->bytes == 0 ? 120.f : 20.f); %};
+      handle_timeout;
+      read_client_socket;
+      parse_tokens;
+    }
+    if {% arg->token.len > 0 %} {
+      read_client_socket;
+      while reading_body {
+        yield {% fiber_await(arg->socket, EV_READ, 20.f); %}; //await readability
+        handle_timeout;
+        read_client_socket;
+      }
+    }
+    if {% HTTP_FLAG_CHECK(arg->flags, HTTP_ACTIVE) %} {
+      {% arg->server->request_handler(arg); %}
+      if {% !HTTP_FLAG_CHECK(arg->flags, HTTP_RESPONSE_READY) %} {
+        {% HTTP_FLAG_SET(arg->flags, HTTP_RESPONSE_PAUSED); %}
+        yield {% fiber_pause(); %};
+        nop;
+      }
+      write_client_socket;
+      while {% arg->bytes != arg->capacity %} {
+        yield {% fiber_await(arg->socket, EV_WRITE, 20.f); %}; //await writeability
+        handle_timeout;
+        write_client_socket;
+      }
+    }
+    free_buffer;
+  }
+  end_session;
+}
+
+{%
 
 void generate_date_time(char** datetime) {
   time_t rawtime;
@@ -874,4 +853,4 @@ void http_respond(http_request_t* session, http_response_t* response) {
 #endif
 #endif
 
-
+%}
