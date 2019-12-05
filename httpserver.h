@@ -468,11 +468,6 @@ void free_buffer(http_request_t* session) {
   free(session->tokens.buf);
 }
 
-void end_session(http_request_t* session) {
-  close(session->socket);
-  free(session);
-}
-
 void parse_tokens(http_request_t* session) {
   http_token_t token;
   do {
@@ -486,18 +481,12 @@ void parse_tokens(http_request_t* session) {
 }
 
 void init_session(http_request_t* session) {
+  session->flags |= HTTP_ACTIVE;
   session->flags |= HTTP_KEEP_ALIVE;
   session->parser = (http_parser_t){ };
   session->bytes = 0;
   session->buf = NULL;
   session->token = (http_token_t){ .type = HTTP_NONE };
-}
-
-void handle_timeout(http_request_t* request) {
-  if (fibererror) {
-    HTTP_FLAG_CLEAR(request->flags, HTTP_ACTIVE);
-    fibererror = 0;
-  }
 }
 
 int parsing_headers(http_request_t* request) {
@@ -509,78 +498,82 @@ int reading_body(http_request_t* request) {
   return request->bytes < size && HTTP_FLAG_CHECK(request->flags, HTTP_ACTIVE);
 }
 
-
-await_t call_http_server_listen(int* state, http_server_t* arg) {
-switch (*state) {
-case 0:
-http_listen(arg);
-while ( 1 ) {
-*state = 10;
-return  fiber_await(arg->socket, EV_READ, -1.f); 
-case 10:
-accept_connections(arg);
-}
-}
-*state = -1;
-await_t ret;
-return ret;
-}
-await_t call_http_session(int* state, http_request_t* arg) {
-switch (*state) {
-case 0:
- HTTP_FLAG_SET(arg->flags, HTTP_ACTIVE); 
-while ( HTTP_FLAG_CHECK(arg->flags, HTTP_ACTIVE) ) {
-init_session(arg);
-read_client_socket(arg);
-parse_tokens(arg);
-while (parsing_headers(arg)) {
-if ( arg->bytes == 0 ) {
-free_buffer(arg);
-}
-*state = 11;
-return  fiber_await(arg->socket, EV_READ, arg->bytes == 0 ? 120.f : 20.f); 
-case 11:
-handle_timeout(arg);
-read_client_socket(arg);
-parse_tokens(arg);
-}
-if ( arg->token.len > 0 ) {
-read_client_socket(arg);
-while (reading_body(arg)) {
-*state = 12;
-return  fiber_await(arg->socket, EV_READ, 20.f); 
-case 12:
-handle_timeout(arg);
-read_client_socket(arg);
-}
-}
-if ( HTTP_FLAG_CHECK(arg->flags, HTTP_ACTIVE) ) {
- arg->server->request_handler(arg); 
-if ( !HTTP_FLAG_CHECK(arg->flags, HTTP_RESPONSE_READY) ) {
- HTTP_FLAG_SET(arg->flags, HTTP_RESPONSE_PAUSED); 
-*state = 13;
-return  fiber_pause(); 
-case 13:
-nop(arg);
-}
-write_client_socket(arg);
-while ( arg->bytes != arg->capacity ) {
-*state = 14;
-return  fiber_await(arg->socket, EV_WRITE, 20.f); 
-case 14:
-handle_timeout(arg);
-write_client_socket(arg);
-}
-}
-free_buffer(arg);
-}
-end_session(arg);
-}
-*state = -1;
-await_t ret;
-return ret;
+await_t call_http_server_listen(int* state, http_server_t* request) {
+  accept_connections(request);
+  return  fiber_await(request->socket, EV_READ, -1.f); 
 }
 
+await_t end_session(int* state, http_request_t* session) {
+  fibererror = 0;
+  *state = -1;
+  close(session->socket);
+  free(session);
+  return (await_t){};
+}
+
+#define HTTP_SESSION_INIT 0
+#define HTTP_SESSION_READ_HEADERS 1
+#define HTTP_SESSION_READ_BODY 2
+#define HTTP_SESSION_WRITE 3
+
+await_t write_response(int* state, http_request_t* request) {
+  write_client_socket(request);
+  if (!HTTP_FLAG_CHECK(request->flags, HTTP_ACTIVE)) {
+    return end_session(state, request);
+  }
+  if (request->bytes != request->capacity) {
+    *state = HTTP_SESSION_WRITE;
+    return fiber_await(request->socket, EV_READ, 20.f);
+  } else {
+    *state = HTTP_SESSION_INIT;
+    free_buffer(request);
+    return fiber_await(request->socket, EV_READ, 120.f);
+  }
+}
+
+await_t exec_response_handler(int* state, http_request_t* request) {
+  request->server->request_handler(request);
+  if (HTTP_FLAG_CHECK(request->flags, HTTP_RESPONSE_READY)) {
+    return write_response(state, request);
+  } else {
+    *state = HTTP_SESSION_WRITE;
+    HTTP_FLAG_SET(request->flags, HTTP_RESPONSE_PAUSED);
+    return fiber_pause();
+  }
+}
+
+await_t call_http_session(int* state, http_request_t* request) {
+  if (fibererror) { return end_session(state, request); }
+  switch (*state) {
+    case HTTP_SESSION_INIT:
+      init_session(request);
+      *state = HTTP_SESSION_READ_HEADERS;
+    case HTTP_SESSION_READ_HEADERS:
+      read_client_socket(request);
+      if (!HTTP_FLAG_CHECK(request->flags, HTTP_ACTIVE)) {
+        return end_session(state, request);
+      }
+      parse_tokens(request);
+      if (!parsing_headers(request) && request->token.len > 0 && reading_body(request)) {
+        *state = HTTP_SESSION_READ_BODY;
+      } else if (!parsing_headers(request)) {
+        return exec_response_handler(state, request);
+      }
+      return fiber_await(request->socket, EV_READ, 20.f);
+    case HTTP_SESSION_READ_BODY:
+      read_client_socket(request);
+      if (!HTTP_FLAG_CHECK(request->flags, HTTP_ACTIVE)) {
+        return end_session(state, request);
+      }
+      if (!reading_body(request)) {
+        return exec_response_handler(state, request);
+      }
+      return fiber_await(request->socket, EV_READ, 20.f);
+    case HTTP_SESSION_WRITE:
+      return write_response(state, request);
+  }
+  return end_session(state, request);
+}
 
 void generate_date_time(char** datetime) {
   time_t rawtime;
@@ -609,6 +602,7 @@ http_server_t* http_server_init(int port, void (*handler)(http_request_t*)) {
 }
 
 int http_server_listen(http_server_t* serv) {
+  http_listen(serv);
   fiber_spawn(http_server_listen, serv);
   fiber_scheduler_run();
   return 0;
