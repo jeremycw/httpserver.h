@@ -13,7 +13,6 @@ void handle_request(struct http_request_s* request) {
 
 int main() {
   printf("request: %lu\n", sizeof(http_request_t));
-  printf("fiber: %lu\n", sizeof(http_session_ctx_t));
   struct http_server_s* server = http_server_init(8080, handle_request);
   http_server_listen(server);
 }
