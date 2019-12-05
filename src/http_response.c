@@ -4,6 +4,7 @@
 #ifndef HTTPSERVER_H
 #include "http_server.h"
 #include "fiber.h"
+#include "http_request.h"
 #include "http_response.h"
 #endif
 
@@ -89,7 +90,7 @@ void http_response_status(http_response_t* response, int status) {
   response->status = status;
 }
 
-void http_response_body(http_response_t* response, char* body, int length) {
+void http_response_body(http_response_t* response, char const * body, int length) {
   response->body = body;
   response->content_length = length;
 }
@@ -110,8 +111,11 @@ void http_respond(http_request_t* session, http_response_t* response) {
   int capacity = RESPONSE_BUF_SIZE;
   int remaining = RESPONSE_BUF_SIZE;
   int size = 0;
-  if (session->flags & HTTP_RESPONSE_KEEP_ALIVE) {
+  if (HTTP_FLAG_CHECK(session->flags, HTTP_KEEP_ALIVE)) {
     http_response_header(response, "Connection", "keep-alive");
+  } else {
+    HTTP_FLAG_CLEAR(session->flags, HTTP_ACTIVE);
+    http_response_header(response, "Connection", "close");
   }
 
   int bytes = snprintf(
@@ -157,9 +161,9 @@ void http_respond(http_request_t* session, http_response_t* response) {
   session->buf = buf;
   session->bytes = 0;
   session->capacity = size;
-  session->flags |= HTTP_RESPONSE_READY;
-  if (session->flags & HTTP_RESPONSE_PAUSED) {
-    session->flags &= ~HTTP_RESPONSE_PAUSED;
+  HTTP_FLAG_SET(session->flags, HTTP_RESPONSE_READY);
+  if (HTTP_FLAG_CHECK(session->flags, HTTP_RESPONSE_PAUSED)) {
+    HTTP_FLAG_CLEAR(session->flags, HTTP_RESPONSE_PAUSED);
     fiber_resume(http_session, session->fiber);
   }
 }

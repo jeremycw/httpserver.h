@@ -244,6 +244,16 @@ void http_server_init(http_server_t* serv, int port, void (*handler)(http_reques
 #include "http_server.h"
 #endif
 
+#define HTTP_ACTIVE 0x1
+#define HTTP_READY 0x2
+#define HTTP_RESPONSE_READY 0x4
+#define HTTP_KEEP_ALIVE 0x8
+#define HTTP_RESPONSE_PAUSED 0x10
+
+#define HTTP_FLAG_SET(var, flag) var |= flag
+#define HTTP_FLAG_CLEAR(var, flag) var &= ~flag
+#define HTTP_FLAG_CHECK(var, flag) (var & flag)
+
 typedef struct {
   char const * buf;
   int len;
@@ -253,6 +263,7 @@ http_string_t http_request_method(http_request_t* request);
 http_string_t http_request_target(http_request_t* request);
 http_string_t http_request_body(http_request_t* request);
 http_string_t http_request_header(http_request_t* request, char const * key);
+void http_request_set_flag(http_request_t* request, int flag, int value);
 
 #endif
 #ifndef HTTP_RESPONSE_H
@@ -270,14 +281,14 @@ typedef struct http_header_s {
 
 typedef struct {
   http_header_t* headers;
-  char* body;
+  char const * body;
   int content_length;
   int status;
 } http_response_t;
 
 void http_response_status(http_response_t* response, int status);
 void http_response_header(http_response_t* response, char const * key, char const * value);
-void http_response_body(http_response_t* response, char* body, int length);
+void http_response_body(http_response_t* response, char const * body, int length);
 void http_respond(http_request_t* session, http_response_t* response);
 void http_response_end(http_request_t* session);
 
@@ -304,13 +315,6 @@ void http_response_end(http_request_t* session);
 #endif
 
 #define BUF_SIZE 1024
-
-#define ACTIVE 0x1
-#define READY 0x2
-
-#define FLAG_SET(var, flag) var |= flag
-#define FLAG_CLEAR(var, flag) var &= ~flag
-#define FLAG_CHECK(var, flag) (var & flag)
 
 varray_defn(http_token_t)
 
@@ -349,6 +353,11 @@ void http_listen(http_server_t* serv) {
 }
 
 void read_client_socket(http_request_t* session) {
+  if (!session->buf) {
+    session->buf = malloc(BUF_SIZE);
+    session->capacity = BUF_SIZE;
+    varray_init(http_token_t, &session->tokens, 32);
+  }
   int bytes;
   do {
     bytes = read(
@@ -358,14 +367,14 @@ void read_client_socket(http_request_t* session) {
     );
     if (bytes > 0) {
       session->bytes += bytes;
-      FLAG_SET(session->flags, READY);
+      HTTP_FLAG_SET(session->flags, HTTP_READY);
     }
     if (session->bytes == session->capacity) {
       session->capacity *= 2;
       session->buf = realloc(session->buf, session->capacity);
     }
   } while (bytes > 0);
-  if (bytes == 0) FLAG_CLEAR(session->flags, ACTIVE);
+  if (bytes == 0) HTTP_FLAG_CLEAR(session->flags, HTTP_ACTIVE);
 }
 
 void write_client_socket(http_request_t* session) {
@@ -376,6 +385,7 @@ void nop(http_request_t* session) { }
 
 void free_buffer(http_request_t* session) {
   free(session->buf);
+  session->buf = NULL;
   free(session->tokens.buf);
 }
 
@@ -385,7 +395,6 @@ void end_session(http_request_t* session) {
 }
 
 void parse_tokens(http_request_t* session) {
-  static char const * names[] = { "METHOD", "TARGET", "VERSION", "HEADER_KEY", "HEADER_VALUE", "HEADER_END", "NONE", "BODY" };
   http_token_t token;
   do {
     token = http_parse(&session->parser, session->buf, session->bytes);
@@ -393,37 +402,32 @@ void parse_tokens(http_request_t* session) {
       session->token = token;
       varray_push(http_token_t, &session->tokens, token);
     }
-    //printf("%s: %.*s\n", names[token.type], token.len, session->buf + token.index);
   } while (token.type != HTTP_NONE);
-  FLAG_CLEAR(session->flags, READY);
+  HTTP_FLAG_CLEAR(session->flags, HTTP_READY);
 }
 
 void init_session(http_request_t* session) {
-  session->flags |= HTTP_RESPONSE_KEEP_ALIVE;
+  session->flags |= HTTP_KEEP_ALIVE;
   session->parser = (http_parser_t){ };
   session->bytes = 0;
   session->buf = NULL;
   session->token = (http_token_t){ .type = HTTP_NONE };
-  session->tokens.size = 0;
-  session->buf = malloc(BUF_SIZE);
-  session->capacity = BUF_SIZE;
-  varray_init(http_token_t, &session->tokens, 32);
 }
 
 void handle_timeout(http_request_t* request) {
   if (fibererror) {
-    FLAG_CLEAR(request->flags, ACTIVE);
+    HTTP_FLAG_CLEAR(request->flags, HTTP_ACTIVE);
     fibererror = 0;
   }
 }
 
 int parsing_headers(http_request_t* request) {
-  return request->token.type != HTTP_BODY && FLAG_CHECK(request->flags, ACTIVE);
+  return request->token.type != HTTP_BODY && HTTP_FLAG_CHECK(request->flags, HTTP_ACTIVE);
 }
 
 int reading_body(http_request_t* request) {
   int size = request->token.index + request->token.len;
-  return request->bytes < size && FLAG_CHECK(request->flags, ACTIVE);
+  return request->bytes < size && HTTP_FLAG_CHECK(request->flags, HTTP_ACTIVE);
 }
 
 
@@ -445,14 +449,17 @@ return ret;
 await_t call_http_session(int* state, http_request_t* arg) {
 switch (*state) {
 case 0:
- FLAG_SET(arg->flags, ACTIVE); 
-while ( FLAG_CHECK(arg->flags, ACTIVE) ) {
+ HTTP_FLAG_SET(arg->flags, HTTP_ACTIVE); 
+while ( HTTP_FLAG_CHECK(arg->flags, HTTP_ACTIVE) ) {
 init_session(arg);
 read_client_socket(arg);
 parse_tokens(arg);
 while (parsing_headers(arg)) {
+if ( arg->bytes == 0 ) {
+free_buffer(arg);
+}
 *state = 11;
-return  fiber_await(arg->socket, EV_READ, 20.f); 
+return  fiber_await(arg->socket, EV_READ, arg->bytes == 0 ? 120.f : 20.f); 
 case 11:
 handle_timeout(arg);
 read_client_socket(arg);
@@ -468,10 +475,10 @@ handle_timeout(arg);
 read_client_socket(arg);
 }
 }
-if ( FLAG_CHECK(arg->flags, ACTIVE) ) {
+if ( HTTP_FLAG_CHECK(arg->flags, HTTP_ACTIVE) ) {
  arg->server->request_handler(arg); 
-if ( !FLAG_CHECK(arg->flags, HTTP_RESPONSE_READY) ) {
- FLAG_SET(arg->flags, HTTP_RESPONSE_PAUSED); 
+if ( !HTTP_FLAG_CHECK(arg->flags, HTTP_RESPONSE_READY) ) {
+ HTTP_FLAG_SET(arg->flags, HTTP_RESPONSE_PAUSED); 
 *state = 13;
 return  fiber_pause(); 
 case 13:
@@ -550,6 +557,15 @@ http_string_t http_get_token_string(http_request_t* request, int token_type) {
   return (http_string_t) { };
 }
 
+int case_insensitive_cmp(char const * a, char const * b, int len) {
+  for (int i = 0; i < len; i++) {
+    char c1 = a[i] >= 'A' && a[i] <= 'Z' ? a[i] + 32 : a[i];
+    char c2 = b[i] >= 'A' && b[i] <= 'Z' ? b[i] + 32 : b[i];
+    if (c1 != c2) return 0;
+  }
+  return 1;
+}
+
 http_string_t http_request_method(http_request_t* request) {
   return http_get_token_string(request, HTTP_METHOD);
 }
@@ -567,7 +583,7 @@ http_string_t http_request_header(http_request_t* request, char const * key) {
   for (int i = 0; i < request->tokens.size; i++) {
     http_token_t token = request->tokens.buf[i];
     if (token.type == HTTP_HEADER_KEY && token.len == len) {
-      if (memcmp(&request->buf[token.index], key, len) == 0) {
+      if (case_insensitive_cmp(&request->buf[token.index], key, len)) {
         token = request->tokens.buf[i + 1];
         return (http_string_t) {
           .buf = &request->buf[token.index],
@@ -578,12 +594,21 @@ http_string_t http_request_header(http_request_t* request, char const * key) {
   }
   return (http_string_t) { };
 }
+
+void http_request_set_flag(http_request_t* request, int flag, int value) {
+  if (value) {
+    HTTP_FLAG_SET(request->flags, flag);
+  } else {
+    HTTP_FLAG_CLEAR(request->flags, flag);
+  }
+}
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 #ifndef HTTPSERVER_H
 #include "http_server.h"
 #include "fiber.h"
+#include "http_request.h"
 #include "http_response.h"
 #endif
 
@@ -669,7 +694,7 @@ void http_response_status(http_response_t* response, int status) {
   response->status = status;
 }
 
-void http_response_body(http_response_t* response, char* body, int length) {
+void http_response_body(http_response_t* response, char const * body, int length) {
   response->body = body;
   response->content_length = length;
 }
@@ -690,8 +715,11 @@ void http_respond(http_request_t* session, http_response_t* response) {
   int capacity = RESPONSE_BUF_SIZE;
   int remaining = RESPONSE_BUF_SIZE;
   int size = 0;
-  if (session->flags & HTTP_RESPONSE_KEEP_ALIVE) {
+  if (HTTP_FLAG_CHECK(session->flags, HTTP_KEEP_ALIVE)) {
     http_response_header(response, "Connection", "keep-alive");
+  } else {
+    HTTP_FLAG_CLEAR(session->flags, HTTP_ACTIVE);
+    http_response_header(response, "Connection", "close");
   }
 
   int bytes = snprintf(
@@ -737,9 +765,9 @@ void http_respond(http_request_t* session, http_response_t* response) {
   session->buf = buf;
   session->bytes = 0;
   session->capacity = size;
-  session->flags |= HTTP_RESPONSE_READY;
-  if (session->flags & HTTP_RESPONSE_PAUSED) {
-    session->flags &= ~HTTP_RESPONSE_PAUSED;
+  HTTP_FLAG_SET(session->flags, HTTP_RESPONSE_READY);
+  if (HTTP_FLAG_CHECK(session->flags, HTTP_RESPONSE_PAUSED)) {
+    HTTP_FLAG_CLEAR(session->flags, HTTP_RESPONSE_PAUSED);
     fiber_resume(http_session, session->fiber);
   }
 }

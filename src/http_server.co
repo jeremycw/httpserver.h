@@ -20,13 +20,6 @@
 
 #define BUF_SIZE 1024
 
-#define ACTIVE 0x1
-#define READY 0x2
-
-#define FLAG_SET(var, flag) var |= flag
-#define FLAG_CLEAR(var, flag) var &= ~flag
-#define FLAG_CHECK(var, flag) (var & flag)
-
 varray_defn(http_token_t)
 
 fiber_defn(http_server_listen, http_server_t*);
@@ -64,6 +57,11 @@ void http_listen(http_server_t* serv) {
 }
 
 void read_client_socket(http_request_t* session) {
+  if (!session->buf) {
+    session->buf = malloc(BUF_SIZE);
+    session->capacity = BUF_SIZE;
+    varray_init(http_token_t, &session->tokens, 32);
+  }
   int bytes;
   do {
     bytes = read(
@@ -73,14 +71,14 @@ void read_client_socket(http_request_t* session) {
     );
     if (bytes > 0) {
       session->bytes += bytes;
-      FLAG_SET(session->flags, READY);
+      HTTP_FLAG_SET(session->flags, HTTP_READY);
     }
     if (session->bytes == session->capacity) {
       session->capacity *= 2;
       session->buf = realloc(session->buf, session->capacity);
     }
   } while (bytes > 0);
-  if (bytes == 0) FLAG_CLEAR(session->flags, ACTIVE);
+  if (bytes == 0) HTTP_FLAG_CLEAR(session->flags, HTTP_ACTIVE);
 }
 
 void write_client_socket(http_request_t* session) {
@@ -91,6 +89,7 @@ void nop(http_request_t* session) { }
 
 void free_buffer(http_request_t* session) {
   free(session->buf);
+  session->buf = NULL;
   free(session->tokens.buf);
 }
 
@@ -100,7 +99,6 @@ void end_session(http_request_t* session) {
 }
 
 void parse_tokens(http_request_t* session) {
-  static char const * names[] = { "METHOD", "TARGET", "VERSION", "HEADER_KEY", "HEADER_VALUE", "HEADER_END", "NONE", "BODY" };
   http_token_t token;
   do {
     token = http_parse(&session->parser, session->buf, session->bytes);
@@ -108,37 +106,32 @@ void parse_tokens(http_request_t* session) {
       session->token = token;
       varray_push(http_token_t, &session->tokens, token);
     }
-    //printf("%s: %.*s\n", names[token.type], token.len, session->buf + token.index);
   } while (token.type != HTTP_NONE);
-  FLAG_CLEAR(session->flags, READY);
+  HTTP_FLAG_CLEAR(session->flags, HTTP_READY);
 }
 
 void init_session(http_request_t* session) {
-  session->flags |= HTTP_RESPONSE_KEEP_ALIVE;
+  session->flags |= HTTP_KEEP_ALIVE;
   session->parser = (http_parser_t){ };
   session->bytes = 0;
   session->buf = NULL;
   session->token = (http_token_t){ .type = HTTP_NONE };
-  session->tokens.size = 0;
-  session->buf = malloc(BUF_SIZE);
-  session->capacity = BUF_SIZE;
-  varray_init(http_token_t, &session->tokens, 32);
 }
 
 void handle_timeout(http_request_t* request) {
   if (fibererror) {
-    FLAG_CLEAR(request->flags, ACTIVE);
+    HTTP_FLAG_CLEAR(request->flags, HTTP_ACTIVE);
     fibererror = 0;
   }
 }
 
 int parsing_headers(http_request_t* request) {
-  return request->token.type != HTTP_BODY && FLAG_CHECK(request->flags, ACTIVE);
+  return request->token.type != HTTP_BODY && HTTP_FLAG_CHECK(request->flags, HTTP_ACTIVE);
 }
 
 int reading_body(http_request_t* request) {
   int size = request->token.index + request->token.len;
-  return request->bytes < size && FLAG_CHECK(request->flags, ACTIVE);
+  return request->bytes < size && HTTP_FLAG_CHECK(request->flags, HTTP_ACTIVE);
 }
 
 %}
@@ -152,14 +145,14 @@ coroutine (await_t) http_server_listen(http_server_t*) {
 }
 
 coroutine (await_t) http_session(http_request_t*) {
-  {% FLAG_SET(arg->flags, ACTIVE); %}
-  while {% FLAG_CHECK(arg->flags, ACTIVE) %} {
+  {% HTTP_FLAG_SET(arg->flags, HTTP_ACTIVE); %}
+  while {% HTTP_FLAG_CHECK(arg->flags, HTTP_ACTIVE) %} {
     init_session;
     read_client_socket;
     parse_tokens;
     while parsing_headers {
-      //TODO if bytes read == 0 free buffers before yield
-      yield {% fiber_await(arg->socket, EV_READ, 20.f); %}; //await readability
+      if {% arg->bytes == 0 %} { free_buffer; } //free buffers while keeping connection alive
+      yield {% fiber_await(arg->socket, EV_READ, arg->bytes == 0 ? 120.f : 20.f); %};
       handle_timeout;
       read_client_socket;
       parse_tokens;
@@ -172,10 +165,10 @@ coroutine (await_t) http_session(http_request_t*) {
         read_client_socket;
       }
     }
-    if {% FLAG_CHECK(arg->flags, ACTIVE) %} {
+    if {% HTTP_FLAG_CHECK(arg->flags, HTTP_ACTIVE) %} {
       {% arg->server->request_handler(arg); %}
-      if {% !FLAG_CHECK(arg->flags, HTTP_RESPONSE_READY) %} {
-        {% FLAG_SET(arg->flags, HTTP_RESPONSE_PAUSED); %}
+      if {% !HTTP_FLAG_CHECK(arg->flags, HTTP_RESPONSE_READY) %} {
+        {% HTTP_FLAG_SET(arg->flags, HTTP_RESPONSE_PAUSED); %}
         yield {% fiber_pause(); %};
         nop;
       }
