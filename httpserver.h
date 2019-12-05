@@ -1,5 +1,3 @@
-
-
 #ifndef HTTPSERVER_H
 #define HTTPSERVER_H
 
@@ -86,114 +84,6 @@ void http_respond(struct http_request_s* request, struct http_response_s* respon
 #define varray_init(type, varray, capacity) \
   varray_##type##_init(varray, capacity);
 
-/******************************************************************************
- *
- * fibers
- *
- *****************************************************************************/
-
-#define FIBER_TIMEOUT 1
-
-typedef void* fiber_t;
-
-#define _spawn_fiber(_1, _2, _3, NAME, ...) NAME
-
-#define fiber_spawn(...) _spawn_fiber(__VA_ARGS__, \
-    spawn_fiber2, spawn_fiber1, _err)(__VA_ARGS__)
-
-#define spawn_fiber_main(coroutine, param) \
-  ctx->state = 0; \
-  ctx->arg = param; \
-  ev_init(&ctx->timer, coroutine##_timeout); \
-  ctx->timer.data = ctx; \
-  ev_io_init(&ctx->io, coroutine##_callback, -1, EV_READ); \
-  await_t await = call_##coroutine(&ctx->state, ctx->arg); \
-  fiber_schedule_or_finish(coroutine)
-
-#define spawn_fiber1(coroutine, param) \
-  coroutine##_ctx_t* ctx = malloc(sizeof(coroutine##_ctx_t)); \
-  spawn_fiber_main(coroutine, param)
-
-#define spawn_fiber2(coroutine, param, fiber_handle) \
-  coroutine##_ctx_t* ctx = malloc(sizeof(coroutine##_ctx_t)); \
-  fiber_handle = (void*)ctx; \
-  spawn_fiber_main(coroutine, param)
-
-#define fiber_resume(coroutine, handle) \
-  coroutine##_ctx_t* ctx = (coroutine##_ctx_t*)handle; \
-  await_t await = call_##coroutine(&ctx->state, ctx->arg); \
-  fiber_schedule_or_finish(coroutine)
-
-#define fiber_schedule_or_finish(coroutine) \
-  ev_io_stop(fiber_scheduler, &ctx->io); \
-  if (ctx->state == -1) { \
-    await.fd = -1; \
-    ev_timer_stop(fiber_scheduler, &ctx->timer); \
-    free(ctx); \
-  } else { \
-    if (await.timeout > 0.f) { \
-      ctx->timer.repeat = await.timeout; \
-      ev_timer_again(fiber_scheduler, &ctx->timer); \
-    } else if (await.timeout < 0.f) { \
-      ev_timer_stop(fiber_scheduler, &ctx->timer); \
-    } \
-    ctx->io.data = ctx; \
-    ev_io_init(&ctx->io, coroutine##_callback, await.fd, await.type); \
-    ev_io_start(fiber_scheduler, &ctx->io); \
-  }
-
-#define fiber_decl(name, type) \
-  typedef struct { \
-    int state; \
-    type arg; \
-    ev_timer timer; \
-    ev_io io; \
-  } name##_ctx_t; \
-  void name##_callback(EV_P_ ev_io *w, int revents); \
-  void name##_timeout(EV_P_ ev_timer *w, int revents); \
-  await_t call_##name(int* state, type arg);
-
-#define fiber_defn(name, type) \
-  void name##_callback(EV_P_ ev_io *w, int revents) { \
-    name##_ctx_t* ctx = (name##_ctx_t*)w->data; \
-    await_t await = call_##name(&ctx->state, ctx->arg); \
-    fiber_schedule_or_finish(name) \
-  } \
-  void name##_timeout(EV_P_ ev_timer *w, int revents) { \
-    name##_ctx_t* ctx = (name##_ctx_t*)w->data; \
-    fibererror = FIBER_TIMEOUT; \
-    await_t await = call_##name(&ctx->state, ctx->arg); \
-    fiber_schedule_or_finish(name) \
-  }
-
-#define fiber_scheduler_init() fiber_scheduler = EV_DEFAULT
-
-#define fiber_scheduler_run() ev_run(fiber_scheduler, 0)
-
-typedef struct {
-  int fd;
-  int type;
-  float timeout;
-} await_t;
-
-int fibererror = 0;
-struct ev_loop* fiber_scheduler;
-
-await_t fiber_pause() {
-  return (await_t) {
-    .fd = -1,
-    .type = 0,
-    .timeout = -1.f
-  };
-}
-
-await_t fiber_await(int fd, int type, float timeout) {
-  return (await_t) {
-    .fd = fd,
-    .type = type,
-    .timeout = timeout
-  };
-}
 
 /******************************************************************************
  *
@@ -369,18 +259,22 @@ varray_decl(http_token_t);
 
 typedef struct http_request_s {
   http_parser_t parser;
+  ev_timer timer;
+  ev_io io;
+  int state;
   int socket;
   char* buf;
   int bytes;
   int capacity;
   struct http_server_s* server;
-  fiber_t fiber;
   http_token_t token;
   varray_t(http_token_t) tokens;
   char flags;
 } http_request_t;
 
 typedef struct http_server_s {
+  ev_io io;
+  struct ev_loop* loop;
   int socket;
   int port;
   socklen_t len;
@@ -390,29 +284,9 @@ typedef struct http_server_s {
   char* date;
 } http_server_t;
 
-fiber_decl(http_server_listen, http_server_t*);
-fiber_decl(http_session, http_request_t*);
-
 #define BUF_SIZE 1024
 
 varray_defn(http_token_t)
-
-fiber_defn(http_server_listen, http_server_t*);
-fiber_defn(http_session, http_request_t*);
-
-void accept_connections(http_server_t* arg) {
-  while (errno != EWOULDBLOCK) {
-    int sock = accept(arg->socket, (struct sockaddr *)&arg->addr, &arg->len);
-    if (sock > 0) {
-      http_request_t* session = malloc(sizeof(http_request_t));
-      *session = (http_request_t) { .socket = sock, .server = arg };
-      int flags = fcntl(sock, F_GETFL, 0);
-      fcntl(sock, F_SETFL, flags | O_NONBLOCK);
-      fiber_spawn(http_session, session, session->fiber);
-    }
-  }
-  errno = 0;
-}
 
 void bind_localhost(int s, struct sockaddr_in* addr, int port) {
   addr->sin_family = AF_INET;
@@ -453,7 +327,9 @@ void read_client_socket(http_request_t* session) {
       session->buf = realloc(session->buf, session->capacity);
     }
   } while (bytes > 0);
-  if (bytes == 0) HTTP_FLAG_CLEAR(session->flags, HTTP_ACTIVE);
+  if (bytes == 0) {
+    HTTP_FLAG_CLEAR(session->flags, HTTP_ACTIVE);
+  }
 }
 
 void write_client_socket(http_request_t* session) {
@@ -498,17 +374,15 @@ int reading_body(http_request_t* request) {
   return request->bytes < size && HTTP_FLAG_CHECK(request->flags, HTTP_ACTIVE);
 }
 
-await_t call_http_server_listen(int* state, http_server_t* request) {
-  accept_connections(request);
-  return  fiber_await(request->socket, EV_READ, -1.f); 
-}
-
-await_t end_session(int* state, http_request_t* session) {
-  fibererror = 0;
-  *state = -1;
+void end_session(http_request_t* session) {
+  ev_io_stop(session->server->loop, &session->io);
+  ev_timer_stop(session->server->loop, &session->timer);
   close(session->socket);
   free(session);
-  return (await_t){};
+}
+
+void http_session_timeout_cb(EV_P_ ev_timer *w, int revents) {
+  end_session((http_request_t*)w->data);
 }
 
 #define HTTP_SESSION_INIT 0
@@ -516,63 +390,96 @@ await_t end_session(int* state, http_request_t* session) {
 #define HTTP_SESSION_READ_BODY 2
 #define HTTP_SESSION_WRITE 3
 
-await_t write_response(int* state, http_request_t* request) {
+void reset_timeout(http_request_t* request, float time) {
+  request->timer.repeat = time;
+  ev_timer_again(request->server->loop, &request->timer);
+}
+
+void write_response(http_request_t* request) {
   write_client_socket(request);
   if (!HTTP_FLAG_CHECK(request->flags, HTTP_ACTIVE)) {
-    return end_session(state, request);
+    return end_session(request);
   }
   if (request->bytes != request->capacity) {
-    *state = HTTP_SESSION_WRITE;
-    return fiber_await(request->socket, EV_READ, 20.f);
+    request->state = HTTP_SESSION_WRITE;
+    ev_io_set(&request->io, request->socket, EV_WRITE);
+    reset_timeout(request, 20.f);
   } else {
-    *state = HTTP_SESSION_INIT;
+    request->state = HTTP_SESSION_INIT;
     free_buffer(request);
-    return fiber_await(request->socket, EV_READ, 120.f);
+    reset_timeout(request, 120.f);
   }
 }
 
-await_t exec_response_handler(int* state, http_request_t* request) {
+void exec_response_handler(http_request_t* request) {
   request->server->request_handler(request);
   if (HTTP_FLAG_CHECK(request->flags, HTTP_RESPONSE_READY)) {
-    return write_response(state, request);
+    write_response(request);
   } else {
-    *state = HTTP_SESSION_WRITE;
+    request->state = HTTP_SESSION_WRITE;
     HTTP_FLAG_SET(request->flags, HTTP_RESPONSE_PAUSED);
-    return fiber_pause();
   }
 }
 
-await_t call_http_session(int* state, http_request_t* request) {
-  if (fibererror) { return end_session(state, request); }
-  switch (*state) {
+void http_session(http_request_t* request) {
+  switch (request->state) {
     case HTTP_SESSION_INIT:
       init_session(request);
-      *state = HTTP_SESSION_READ_HEADERS;
+      request->state = HTTP_SESSION_READ_HEADERS;
     case HTTP_SESSION_READ_HEADERS:
       read_client_socket(request);
       if (!HTTP_FLAG_CHECK(request->flags, HTTP_ACTIVE)) {
-        return end_session(state, request);
+        return end_session(request);
       }
       parse_tokens(request);
       if (!parsing_headers(request) && request->token.len > 0 && reading_body(request)) {
-        *state = HTTP_SESSION_READ_BODY;
+        request->state = HTTP_SESSION_READ_BODY;
       } else if (!parsing_headers(request)) {
-        return exec_response_handler(state, request);
+        return exec_response_handler(request);
       }
-      return fiber_await(request->socket, EV_READ, 20.f);
+      reset_timeout(request, 20.f);
+      break;
     case HTTP_SESSION_READ_BODY:
       read_client_socket(request);
       if (!HTTP_FLAG_CHECK(request->flags, HTTP_ACTIVE)) {
-        return end_session(state, request);
+        return end_session(request);
       }
       if (!reading_body(request)) {
-        return exec_response_handler(state, request);
+        return exec_response_handler(request);
       }
-      return fiber_await(request->socket, EV_READ, 20.f);
+      reset_timeout(request, 20.f);
+      break;
     case HTTP_SESSION_WRITE:
-      return write_response(state, request);
+      write_response(request);
+      break;
   }
-  return end_session(state, request);
+}
+
+void http_session_io_cb(EV_P_ ev_io *w, int revents) {
+  http_session((http_request_t*)w->data);
+}
+
+void accept_connections(http_server_t* server) {
+  while (errno != EWOULDBLOCK) {
+    int sock = accept(server->socket, (struct sockaddr *)&server->addr, &server->len);
+    if (sock > 0) {
+      http_request_t* session = malloc(sizeof(http_request_t));
+      *session = (http_request_t) { .socket = sock, .server = server };
+      int flags = fcntl(sock, F_GETFL, 0);
+      fcntl(sock, F_SETFL, flags | O_NONBLOCK);
+      ev_init(&session->timer, http_session_timeout_cb);
+      session->timer.data = session;
+      ev_io_init(&session->io, http_session_io_cb, sock, EV_READ);
+      session->io.data = session;
+      ev_io_start(server->loop, &session->io);
+      http_session(session);
+    }
+  }
+  errno = 0;
+}
+
+void http_server_listen_cb(EV_P_ ev_io *w, int revents) {
+  accept_connections((http_server_t*)w->data);
 }
 
 void generate_date_time(char** datetime) {
@@ -584,18 +491,19 @@ void generate_date_time(char** datetime) {
 }
 
 void date_generator(EV_P_ ev_timer *w, int revents) {
-  generate_date_time((char**)w->data);
-  ev_timer_again(fiber_scheduler, w);
+  http_server_t* server = (http_server_t*)w->data;
+  generate_date_time(&server->date);
+  ev_timer_again(server->loop, w);
 }
 
 http_server_t* http_server_init(int port, void (*handler)(http_request_t*)) {
   http_server_t* serv = malloc(sizeof(http_server_t));
-  fiber_scheduler_init();
   serv->port = port;
+  serv->loop = EV_DEFAULT;
   ev_init(&serv->timer, date_generator);
-  serv->timer.data = (void*)&serv->date;
+  serv->timer.data = serv;
   serv->timer.repeat = 1.f;
-  ev_timer_again(fiber_scheduler, &serv->timer);
+  ev_timer_again(serv->loop, &serv->timer);
   generate_date_time(&serv->date);
   serv->request_handler = handler;
   return serv;
@@ -603,13 +511,15 @@ http_server_t* http_server_init(int port, void (*handler)(http_request_t*)) {
 
 int http_server_listen(http_server_t* serv) {
   http_listen(serv);
-  fiber_spawn(http_server_listen, serv);
-  fiber_scheduler_run();
+  ev_io_init(&serv->io, http_server_listen_cb, serv->socket, EV_READ);
+  serv->io.data = serv;
+  ev_io_start(serv->loop, &serv->io);
+  ev_run(serv->loop, 0);
   return 0;
 }
 
-struct ev_loop* http_server_loop() {
-  return fiber_scheduler;
+struct ev_loop* http_server_loop(http_server_t* server) {
+  return server->loop;
 }
 
 /******************************************************************************
@@ -861,11 +771,9 @@ void http_respond(http_request_t* session, http_response_t* response) {
   HTTP_FLAG_SET(session->flags, HTTP_RESPONSE_READY);
   if (HTTP_FLAG_CHECK(session->flags, HTTP_RESPONSE_PAUSED)) {
     HTTP_FLAG_CLEAR(session->flags, HTTP_RESPONSE_PAUSED);
-    fiber_resume(http_session, session->fiber);
+    http_session(session);
   }
 }
 
 #endif
 #endif
-
-
