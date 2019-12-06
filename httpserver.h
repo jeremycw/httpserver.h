@@ -246,7 +246,6 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n) {
  *
  *****************************************************************************/
 
-#define HTTP_ACTIVE 0x1
 #define HTTP_READY 0x2
 #define HTTP_RESPONSE_READY 0x4
 #define HTTP_RESPONSE_PAUSED 0x10
@@ -305,7 +304,7 @@ void http_listen(http_server_t* serv) {
   listen(serv->socket, 128);
 }
 
-void read_client_socket(http_request_t* session) {
+int read_client_socket(http_request_t* session) {
   if (!session->buf) {
     session->buf = malloc(BUF_SIZE);
     session->capacity = BUF_SIZE;
@@ -327,16 +326,13 @@ void read_client_socket(http_request_t* session) {
       session->buf = realloc(session->buf, session->capacity);
     }
   } while (bytes > 0);
-  if (bytes == 0) {
-    HTTP_FLAG_CLEAR(session->flags, HTTP_ACTIVE);
-  }
+  return bytes == 0 ? 0 : 1;
 }
 
-void write_client_socket(http_request_t* session) {
+int write_client_socket(http_request_t* session) {
   session->bytes += write(session->socket, session->buf + session->bytes, session->capacity);
+  return errno == EPIPE ? 0 : 1;
 }
-
-void nop(http_request_t* session) { }
 
 void free_buffer(http_request_t* session) {
   free(session->buf);
@@ -357,7 +353,6 @@ void parse_tokens(http_request_t* session) {
 }
 
 void init_session(http_request_t* session) {
-  session->flags |= HTTP_ACTIVE;
   session->flags |= HTTP_KEEP_ALIVE;
   session->parser = (http_parser_t){ };
   session->bytes = 0;
@@ -366,12 +361,12 @@ void init_session(http_request_t* session) {
 }
 
 int parsing_headers(http_request_t* request) {
-  return request->token.type != HTTP_BODY && HTTP_FLAG_CHECK(request->flags, HTTP_ACTIVE);
+  return request->token.type != HTTP_BODY;
 }
 
 int reading_body(http_request_t* request) {
   int size = request->token.index + request->token.len;
-  return request->bytes < size && HTTP_FLAG_CHECK(request->flags, HTTP_ACTIVE);
+  return request->bytes < size;
 }
 
 void end_session(http_request_t* session) {
@@ -396,18 +391,17 @@ void reset_timeout(http_request_t* request, float time) {
 }
 
 void write_response(http_request_t* request) {
-  write_client_socket(request);
-  if (!HTTP_FLAG_CHECK(request->flags, HTTP_ACTIVE)) {
-    return end_session(request);
-  }
+  if (!write_client_socket(request)) { return end_session(request); }
   if (request->bytes != request->capacity) {
     request->state = HTTP_SESSION_WRITE;
     ev_io_set(&request->io, request->socket, EV_WRITE);
     reset_timeout(request, 20.f);
-  } else {
+  } else if (HTTP_FLAG_CHECK(request->flags, HTTP_KEEP_ALIVE)) {
     request->state = HTTP_SESSION_INIT;
     free_buffer(request);
     reset_timeout(request, 120.f);
+  } else {
+    return end_session(request);
   }
 }
 
@@ -427,10 +421,7 @@ void http_session(http_request_t* request) {
       init_session(request);
       request->state = HTTP_SESSION_READ_HEADERS;
     case HTTP_SESSION_READ_HEADERS:
-      read_client_socket(request);
-      if (!HTTP_FLAG_CHECK(request->flags, HTTP_ACTIVE)) {
-        return end_session(request);
-      }
+      if (!read_client_socket(request)) { return end_session(request); }
       parse_tokens(request);
       if (!parsing_headers(request) && request->token.len > 0 && reading_body(request)) {
         request->state = HTTP_SESSION_READ_BODY;
@@ -440,13 +431,8 @@ void http_session(http_request_t* request) {
       reset_timeout(request, 20.f);
       break;
     case HTTP_SESSION_READ_BODY:
-      read_client_socket(request);
-      if (!HTTP_FLAG_CHECK(request->flags, HTTP_ACTIVE)) {
-        return end_session(request);
-      }
-      if (!reading_body(request)) {
-        return exec_response_handler(request);
-      }
+      if (!read_client_socket(request)) { return end_session(request); }
+      if (!reading_body(request)) { return exec_response_handler(request); }
       reset_timeout(request, 20.f);
       break;
     case HTTP_SESSION_WRITE:
@@ -510,6 +496,7 @@ http_server_t* http_server_init(int port, void (*handler)(http_request_t*)) {
 }
 
 int http_server_listen(http_server_t* serv) {
+  signal(SIGPIPE, SIG_IGN);
   http_listen(serv);
   ev_io_init(&serv->io, http_server_listen_cb, serv->socket, EV_READ);
   serv->io.data = serv;
@@ -720,7 +707,6 @@ void http_respond(http_request_t* session, http_response_t* response) {
   if (HTTP_FLAG_CHECK(session->flags, HTTP_KEEP_ALIVE)) {
     http_response_header(response, "Connection", "keep-alive");
   } else {
-    HTTP_FLAG_CLEAR(session->flags, HTTP_ACTIVE);
     http_response_header(response, "Connection", "close");
   }
 
