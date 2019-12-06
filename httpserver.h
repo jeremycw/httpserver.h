@@ -10,7 +10,7 @@ struct http_server_s;
 struct http_request_s;
 struct http_response_s;
 
-struct ev_loop* http_server_loop();
+struct ev_loop* http_server_loop(struct http_server_s* server);
 int http_server_listen(struct http_server_s* server);
 struct http_server_s* http_server_init(int port, void (*handler)(struct http_request_s*));
 
@@ -20,8 +20,10 @@ struct http_string_s http_request_body(struct http_request_s* request);
 struct http_string_s http_request_header(struct http_request_s* request, char const * key);
 
 #define HTTP_KEEP_ALIVE 0x8
+#define HTTP_CLOSE 1
+#define HTTP_AUTOMATIC 2
 
-void http_request_set_flag(struct http_request_s* request, int flag, int value);
+void http_request_connection(struct http_request_s* request, int directive);
 
 struct http_response_s* http_response_init();
 void http_response_status(struct http_response_s* response, int status);
@@ -568,11 +570,32 @@ http_string_t http_request_header(http_request_t* request, char const * key) {
   return (http_string_t) { };
 }
 
-void http_request_set_flag(http_request_t* request, int flag, int value) {
-  if (value) {
-    HTTP_FLAG_SET(request->flags, flag);
-  } else {
-    HTTP_FLAG_CLEAR(request->flags, flag);
+#define HTTP_1_0 0
+#define HTTP_1_1 1
+
+void auto_detect_keep_alive(http_request_t* request) {
+  http_string_t str = http_get_token_string(request, HTTP_VERSION);
+  int version = str.buf[str.len - 1] == '1';
+  str = http_request_header(request, "Connection");
+  if (
+    (str.len == 5 && case_insensitive_cmp(str.buf, "close", 5)) ||
+    (str.len == 0 && version == HTTP_1_0)
+  ) {
+    HTTP_FLAG_CLEAR(request->flags, HTTP_KEEP_ALIVE);
+  }
+}
+
+void http_request_connection(http_request_t* request, int directive) {
+  switch (directive) {
+    case HTTP_KEEP_ALIVE:
+      HTTP_FLAG_SET(request->flags, HTTP_KEEP_ALIVE);
+      break;
+    case HTTP_CLOSE:
+      HTTP_FLAG_CLEAR(request->flags, HTTP_KEEP_ALIVE);
+      break;
+    case HTTP_AUTOMATIC:
+      auto_detect_keep_alive(request);
+      break;
   }
 }
 
