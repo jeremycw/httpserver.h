@@ -367,6 +367,7 @@ int parsing_headers(http_request_t* request) {
 }
 
 int reading_body(http_request_t* request) {
+  if (request->token.type != HTTP_BODY || request->token.len == 0) return 0;
   int size = request->token.index + request->token.len;
   return request->bytes < size;
 }
@@ -425,7 +426,7 @@ void http_session(http_request_t* request) {
     case HTTP_SESSION_READ_HEADERS:
       if (!read_client_socket(request)) { return end_session(request); }
       parse_tokens(request);
-      if (!parsing_headers(request) && request->token.len > 0 && reading_body(request)) {
+      if (reading_body(request)) {
         request->state = HTTP_SESSION_READ_BODY;
       } else if (!parsing_headers(request)) {
         return exec_response_handler(request);
