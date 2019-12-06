@@ -1,6 +1,8 @@
 #ifndef HTTPSERVER_H
 #define HTTPSERVER_H
 
+// String type used to read the request details. The char pointer is NOT null
+// terminated.
 struct http_string_s {
   char const * buf;
   int len;
@@ -10,15 +12,36 @@ struct http_server_s;
 struct http_request_s;
 struct http_response_s;
 
+// Returns the libev event loop that the server is running on. Can be used to
+// perform event driven io during a request. See libev man for more information
 struct ev_loop* http_server_loop(struct http_server_s* server);
-int http_server_listen(struct http_server_s* server);
+
+// Allocates and initializes the http server. Takes a port and a function
+// pointer that is called to process requests.
 struct http_server_s* http_server_init(int port, void (*handler)(struct http_request_s*));
 
+// Starts the event loop and the server listening. During normal operation this
+// function will not return. Return value is the error code if the server fails
+// to start.
+int http_server_listen(struct http_server_s* server);
+
+// Returns the request method as it was read from the HTTP request line.
 struct http_string_s http_request_method(struct http_request_s* request);
+
+// Returns the full request target as it was read from the HTTP request line.
 struct http_string_s http_request_target(struct http_request_s* request);
+
+// Returns the request body. If no request body was sent buf and len of the
+// string will be set to 0.
 struct http_string_s http_request_body(struct http_request_s* request);
+
+// Returns the request header value for the given header key. The key is case
+// insensitive.
 struct http_string_s http_request_header(struct http_request_s* request, char const * key);
 
+// Procedure used to iterate over all the request headers. iter should be
+// initialized to zero before calling. Each call will set key and val to the
+// key and value of the next header. Returns 0 when there are no more headers.
 int http_request_iterate_headers(
   struct http_request_s* request,
   struct http_string_s* key,
@@ -27,15 +50,42 @@ int http_request_iterate_headers(
 );
 
 #define HTTP_KEEP_ALIVE 0x8
-#define HTTP_CLOSE 1
-#define HTTP_AUTOMATIC 2
+#define HTTP_CLOSE 0x2
+#define HTTP_AUTOMATIC 0x1
 
+// Sets how the server handles the connection after the response has been
+// delivered. By default the server will always keep the connection alive for
+// a period of time after a request has been completed regardless of the
+// Connection header sent by the client. This behaviour can be changed by
+// calling this function with any of the following directives:
+//
+//   HTTP_KEEP_ALIVE - keeps the connection alive after request completes.
+//                     (default)
+//
+//   HTTP_CLOSE - Always closes the connection after the request completes.
+//
+//   HTTP_AUTOMATIC - Takes the Connection header and HTTP version into account
+//                    and handles keep alive accordingly.
+//
 void http_request_connection(struct http_request_s* request, int directive);
 
+// Allocates an http response. This memory will be freed when http_respond is
+// called.
 struct http_response_s* http_response_init();
+
+// Set the response status.
 void http_response_status(struct http_response_s* response, int status);
+
+// Set a response header.
 void http_response_header(struct http_response_s* response, char const * key, char const * value);
+
+// Set the response body. The caller is responsible for freeing any memory that
+// may have been allocated for the body. It is safe to free this memory AFTER
+// http_respond has been called.
 void http_response_body(struct http_response_s* response, char const * body, int length);
+
+// Starts writing the response to the client. Any memory allocated for the
+// response body or response headers is safe to free after this call.
 void http_respond(struct http_request_s* request, struct http_response_s* response);
 
 #endif
@@ -230,6 +280,7 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n) {
           parser->sub_state = HTTP_CRLF;
         } else if (parser->sub_state == HTTP_CRLF && c == '\r') {
           parser->sub_state = 0;
+          parser->state = HTTP_BODY;
           return (http_token_t) {
             .index = i + 2,
             .type = HTTP_BODY,
@@ -243,7 +294,6 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n) {
           parser->state = HTTP_HEADER_KEY;
         }
         break;
-
     }
   }
   return (http_token_t) { .index = 0, .type = HTTP_NONE, .len = 0 };
@@ -341,7 +391,12 @@ int read_client_socket(http_request_t* session) {
 }
 
 int write_client_socket(http_request_t* session) {
-  session->bytes += write(session->socket, session->buf + session->bytes, session->capacity);
+  int bytes = write(
+    session->socket,
+    session->buf + session->bytes,
+    session->capacity - session->bytes
+  );
+  if (bytes > 0) session->bytes += bytes;
   return errno == EPIPE ? 0 : 1;
 }
 
@@ -407,7 +462,6 @@ void write_response(http_request_t* request) {
   if (!write_client_socket(request)) { return end_session(request); }
   if (request->bytes != request->capacity) {
     request->state = HTTP_SESSION_WRITE;
-    ev_io_set(&request->io, request->socket, EV_WRITE);
     reset_timeout(request, 20.f);
   } else if (HTTP_FLAG_CHECK(request->flags, HTTP_KEEP_ALIVE)) {
     request->state = HTTP_SESSION_INIT;
@@ -421,6 +475,9 @@ void write_response(http_request_t* request) {
 void exec_response_handler(http_request_t* request) {
   request->server->request_handler(request);
   if (HTTP_FLAG_CHECK(request->flags, HTTP_RESPONSE_READY)) {
+    ev_io_stop(request->server->loop, &request->io);
+    ev_io_set(&request->io, request->socket, EV_WRITE);
+    ev_io_start(request->server->loop, &request->io);
     write_response(request);
   } else {
     request->state = HTTP_SESSION_WRITE;
@@ -769,12 +826,12 @@ void http_response_body(http_response_t* response, char const * body, int length
   response->content_length = length;
 }
 
-#define buffer_bookkeeping(printf) \
-  printf \
+#define buffer_bookkeeping(code) \
+  code \
   if (bytes + size > capacity) { \
     while (bytes + size > capacity) capacity *= 2; \
     buf = realloc(buf, capacity); \
-    printf \
+    code \
     remaining = capacity - size; \
   } \
   size += bytes; \
@@ -817,12 +874,11 @@ void http_respond(http_request_t* session, http_response_t* response) {
   }
   buffer_bookkeeping(bytes = snprintf(buf + size, remaining, "\r\n");)
   if (response->body) {
-    buffer_bookkeeping(
-      bytes = snprintf(
-        buf + size, remaining, "%.*s",
-        response->content_length, response->body
-      );
-    )
+    if (response->content_length > remaining) {
+      buf = realloc(buf, size + response->content_length);
+    }
+    memcpy(buf + size, response->body, response->content_length);
+    size += response->content_length;
   }
   header = response->headers;
   while (header) {
