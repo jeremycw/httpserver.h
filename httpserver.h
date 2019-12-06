@@ -461,6 +461,9 @@ void reset_timeout(http_request_t* request, float time) {
 void write_response(http_request_t* request) {
   if (!write_client_socket(request)) { return end_session(request); }
   if (request->bytes != request->capacity) {
+    ev_io_stop(request->server->loop, &request->io);
+    ev_io_set(&request->io, request->socket, EV_WRITE);
+    ev_io_start(request->server->loop, &request->io);
     request->state = HTTP_SESSION_WRITE;
     reset_timeout(request, 20.f);
   } else if (HTTP_FLAG_CHECK(request->flags, HTTP_KEEP_ALIVE)) {
@@ -475,9 +478,6 @@ void write_response(http_request_t* request) {
 void exec_response_handler(http_request_t* request) {
   request->server->request_handler(request);
   if (HTTP_FLAG_CHECK(request->flags, HTTP_RESPONSE_READY)) {
-    ev_io_stop(request->server->loop, &request->io);
-    ev_io_set(&request->io, request->socket, EV_WRITE);
-    ev_io_start(request->server->loop, &request->io);
     write_response(request);
   } else {
     request->state = HTTP_SESSION_WRITE;
