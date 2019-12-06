@@ -19,6 +19,13 @@ struct http_string_s http_request_target(struct http_request_s* request);
 struct http_string_s http_request_body(struct http_request_s* request);
 struct http_string_s http_request_header(struct http_request_s* request, char const * key);
 
+int http_request_iterate_headers(
+  struct http_request_s* request,
+  struct http_string_s* key,
+  struct http_string_s* val,
+  int* iter
+);
+
 #define HTTP_KEEP_ALIVE 0x8
 #define HTTP_CLOSE 1
 #define HTTP_AUTOMATIC 2
@@ -301,6 +308,8 @@ void bind_localhost(int s, struct sockaddr_in* addr, int port) {
 
 void http_listen(http_server_t* serv) {
   serv->socket = socket(AF_INET, SOCK_STREAM, 0);
+  int flag = 1;
+  setsockopt(serv->socket, SOL_SOCKET, SO_REUSEPORT, &flag, sizeof(flag));
   bind_localhost(serv->socket, &serv->addr, serv->port);
   serv->len = sizeof(serv->addr);
   listen(serv->socket, 128);
@@ -559,6 +568,47 @@ http_string_t http_request_target(http_request_t* request) {
 
 http_string_t http_request_body(http_request_t* request) {
   return http_get_token_string(request, HTTP_BODY);
+}
+
+int assign_iteration_headers(
+  http_request_t* request,
+  http_string_t* key,
+  http_string_t* val,
+  int* iter
+) {
+  http_token_t token = request->tokens.buf[*iter];
+  *key = (http_string_t) {
+    .buf = &request->buf[token.index],
+    .len = token.len
+  };
+  (*iter)++;
+  token = request->tokens.buf[*iter];
+  *val = (http_string_t) {
+    .buf = &request->buf[token.index],
+    .len = token.len
+  };
+  if (request->tokens.buf[*iter + 1].type == HTTP_BODY) return 0;
+  return 1;
+}
+
+int http_request_iterate_headers(
+  http_request_t* request,
+  http_string_t* key,
+  http_string_t* val,
+  int* iter
+) {
+  if (*iter == 0) {
+    for ( ; *iter < request->tokens.size; (*iter)++) {
+      http_token_t token = request->tokens.buf[*iter];
+      if (token.type == HTTP_HEADER_KEY) {
+        return assign_iteration_headers(request, key, val, iter);
+      }
+    }
+    return 0;
+  } else {
+    (*iter)++;
+    return assign_iteration_headers(request, key, val, iter);
+  }
 }
 
 http_string_t http_request_header(http_request_t* request, char const * key) {
