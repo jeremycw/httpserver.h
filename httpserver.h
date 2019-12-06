@@ -376,6 +376,7 @@ void end_session(http_request_t* session) {
   ev_io_stop(session->server->loop, &session->io);
   ev_timer_stop(session->server->loop, &session->timer);
   close(session->socket);
+  free_buffer(session);
   free(session);
 }
 
