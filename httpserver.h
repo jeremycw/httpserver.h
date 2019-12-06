@@ -489,7 +489,13 @@ void date_generator(EV_P_ ev_timer *w, int revents) {
 http_server_t* http_server_init(int port, void (*handler)(http_request_t*)) {
   http_server_t* serv = malloc(sizeof(http_server_t));
   serv->port = port;
-  serv->loop = EV_DEFAULT;
+  if (ev_supported_backends() & EVBACKEND_EPOLL) {
+    serv->loop = ev_default_loop(EVBACKEND_EPOLL);
+  } else if (ev_supported_backends() & EVBACKEND_KQUEUE) {
+    serv->loop = ev_default_loop(EVBACKEND_KQUEUE);
+  } else {
+    serv->loop = EV_DEFAULT;
+  }
   ev_init(&serv->timer, date_generator);
   serv->timer.data = serv;
   serv->timer.repeat = 1.f;
