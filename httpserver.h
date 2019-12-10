@@ -87,6 +87,14 @@ int http_request_iterate_headers(
 // keep the connection alive.
 void http_request_connection(struct http_request_s* request, int directive);
 
+// When reading in the HTTP request the server allocates a buffer to store
+// the request details such as the headers, method, body, etc. By default this
+// memory will be freed when http_respond is called. This function lets you
+// free that memory before the http_respond call. This can be useful if you
+// have requests that take a long time to complete and you don't require the
+// request data. Accessing any http_string_s's will be invalid after this call.
+void http_request_free_buffer(struct http_request_s* request);
+
 // Allocates an http response. This memory will be freed when http_respond is
 // called.
 struct http_response_s* http_response_init();
@@ -419,9 +427,12 @@ int write_client_socket(http_request_t* session) {
 }
 
 void free_buffer(http_request_t* session) {
-  free(session->buf);
-  session->buf = NULL;
-  free(session->tokens.buf);
+  if (session->buf) {
+    free(session->buf);
+    session->buf = NULL;
+    free(session->tokens.buf);
+    session->tokens.buf = NULL;
+  }
 }
 
 void parse_tokens(http_request_t* session) {
@@ -702,6 +713,10 @@ http_string_t http_request_header(http_request_t* request, char const * key) {
     }
   }
   return (http_string_t) { };
+}
+
+void http_request_free_buffer(http_request_t* request) {
+  free_buffer(request);
 }
 
 #define HTTP_1_0 0
