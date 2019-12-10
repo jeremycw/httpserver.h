@@ -145,46 +145,6 @@ int main() {
 
 /******************************************************************************
  *
- * varray
- *
- *****************************************************************************/
-
-#define varray_decl(type) \
-  typedef struct { \
-    type* buf; \
-    int capacity; \
-    int size; \
-  } varray_##type##_t; \
-  void varray_##type##_push(varray_##type##_t* varray, type a); \
-  void varray_##type##_init(varray_##type##_t* varray, int capacity);
-
-#define varray_defn(type) \
-  void varray_##type##_push(varray_##type##_t* varray, type a) { \
-    if (varray->size == varray->capacity) { \
-      varray->capacity *= 2; \
-      varray->buf = realloc(varray->buf, varray->capacity * sizeof(type)); \
-    } \
-    varray->buf[varray->size] = a; \
-    varray->size++; \
-  } \
-  void varray_##type##_init(varray_##type##_t* varray, int capacity) { \
-    varray->buf = malloc(sizeof(type) * capacity); \
-    varray->size = 0; \
-    varray->capacity = capacity; \
-  }
-
-#define varray_t(type) \
-  varray_##type##_t
-
-#define varray_push(type, varray, a) \
-  varray_##type##_push(varray, a); 
-
-#define varray_init(type, varray, capacity) \
-  varray_##type##_init(varray, capacity);
-
-
-/******************************************************************************
- *
  * HTTP Parser
  *
  *****************************************************************************/
@@ -353,7 +313,11 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n) {
 #define HTTP_FLAG_CLEAR(var, flag) var &= ~flag
 #define HTTP_FLAG_CHECK(var, flag) (var & flag)
 
-varray_decl(http_token_t);
+typedef struct {
+  type* buf;
+  int capacity;
+  int size;
+} http_token_dyn_t;
 
 typedef struct http_request_s {
   http_parser_t parser;
@@ -366,7 +330,7 @@ typedef struct http_request_s {
   int capacity;
   struct http_server_s* server;
   http_token_t token;
-  varray_t(http_token_t) tokens;
+  http_token_dyn_t tokens;
   char flags;
 } http_request_t;
 
@@ -382,9 +346,22 @@ typedef struct http_server_s {
   char* date;
 } http_server_t;
 
-#define BUF_SIZE 1024
+void http_token_dyn_push(http_token_dyn_t* dyn, type a) {
+  if (dyn->size == dyn->capacity) {
+    dyn->capacity *= 2;
+    dyn->buf = realloc(dyn->buf, dyn->capacity * sizeof(type));
+  }
+  dyn->buf[dyn->size] = a;
+  dyn->size++;
+}
 
-varray_defn(http_token_t)
+void http_token_dyn_init(http_token_dyn_t* dyn, int capacity) {
+  dyn->buf = malloc(sizeof(type) * capacity);
+  dyn->size = 0;
+  dyn->capacity = capacity;
+}
+
+#define BUF_SIZE 1024
 
 void bind_localhost(int s, struct sockaddr_in* addr, int port) {
   addr->sin_family = AF_INET;
@@ -409,7 +386,7 @@ int read_client_socket(http_request_t* session) {
   if (!session->buf) {
     session->buf = malloc(BUF_SIZE);
     session->capacity = BUF_SIZE;
-    varray_init(http_token_t, &session->tokens, 32);
+    http_token_dyn_init(&session->tokens, 32);
   }
   int bytes;
   do {
@@ -452,7 +429,7 @@ void parse_tokens(http_request_t* session) {
     token = http_parse(&session->parser, session->buf, session->bytes);
     if (token.type != HTTP_NONE) {
       session->token = token;
-      varray_push(http_token_t, &session->tokens, token);
+      http_token_dyn_push(&session->tokens, token);
     }
   } while (token.type != HTTP_NONE);
   HTTP_FLAG_CLEAR(session->flags, HTTP_READY);
@@ -530,6 +507,7 @@ void http_session(http_request_t* request) {
     case HTTP_SESSION_INIT:
       init_session(request);
       request->state = HTTP_SESSION_READ_HEADERS;
+      // fallthrough
     case HTTP_SESSION_READ_HEADERS:
       if (!read_client_socket(request)) { return end_session(request); }
       parse_tokens(request);
