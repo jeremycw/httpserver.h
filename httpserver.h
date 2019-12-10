@@ -141,6 +141,7 @@ int main() {
 #include <netdb.h>
 #include <unistd.h>
 #include <string.h>
+#include <stdarg.h>
 #include <ev.h>
 
 /******************************************************************************
@@ -855,22 +856,43 @@ void http_response_body(http_response_t* response, char const * body, int length
   response->content_length = length;
 }
 
-#define buffer_bookkeeping(code) \
-  code \
-  if (bytes + size > capacity) { \
-    while (bytes + size > capacity) capacity *= 2; \
-    buf = realloc(buf, capacity); \
-    code \
-    remaining = capacity - size; \
-  } \
-  size += bytes; \
-  remaining -= bytes;
+typedef struct {
+  char* buf;
+  int capacity;
+  int size;
+} grwprintf_t;
+
+void grwprintf_init(grwprintf_t* ctx, int capacity) {
+  ctx->size = 0;
+  ctx->buf = malloc(capacity);
+  ctx->capacity = capacity;
+}
+
+void grwmemcpy(grwprintf_t* ctx, char const * src, int size) {
+  if (ctx->size + size > ctx->capacity) {
+    ctx->capacity = ctx->size + size;
+    ctx->buf = realloc(ctx->buf, ctx->capacity);
+  }
+  memcpy(ctx->buf + ctx->size, src, size);
+  ctx->size += size;
+}
+
+void grwprintf(grwprintf_t* ctx, char const * fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+
+  int bytes = vsnprintf(ctx->buf + ctx->size, ctx->capacity - ctx->size, fmt, args);
+  if (bytes + ctx->size > ctx->capacity) {
+    while (bytes + ctx->size > ctx->capacity) ctx->capacity *= 2;
+    ctx->buf = realloc(ctx->buf, ctx->capacity);
+    bytes += vsnprintf(ctx->buf + ctx->size, ctx->capacity - ctx->size, fmt, args);
+  }
+  ctx->size += bytes;
+ 
+  va_end(args);
+}
 
 void http_respond(http_request_t* session, http_response_t* response) {
-  char* buf = malloc(RESPONSE_BUF_SIZE);
-  int capacity = RESPONSE_BUF_SIZE;
-  int remaining = RESPONSE_BUF_SIZE;
-  int size = 0;
   if (HTTP_FLAG_CHECK(session->flags, HTTP_AUTOMATIC)) {
     auto_detect_keep_alive(session);
   }
@@ -880,37 +902,23 @@ void http_respond(http_request_t* session, http_response_t* response) {
     http_response_header(response, "Connection", "close");
   }
 
-  int bytes = snprintf(
-    buf, remaining, "HTTP/1.1 %d %s\r\nDate: %.24s\r\n",
+  grwprintf_t printctx;
+  grwprintf_init(&printctx, RESPONSE_BUF_SIZE);
+  grwprintf(
+    &printctx, "HTTP/1.1 %d %s\r\nDate: %.24s\r\n",
     response->status, status_text[response->status], session->server->date
   );
-  size += bytes;
-  remaining -= bytes;
   http_header_t* header = response->headers;
   while (header) {
-    buffer_bookkeeping(
-      bytes = snprintf( 
-        buf + size, remaining, "%s: %s\r\n", 
-        header->key, header->value 
-      );
-    )
+    grwprintf(&printctx, "%s: %s\r\n", header->key, header->value);
     header = header->next;
   }
   if (response->body) {
-    buffer_bookkeeping(
-      bytes = snprintf(
-        buf + size, remaining, "Content-Length: %d\r\n",
-        response->content_length
-      );
-    )
+    grwprintf(&printctx, "Content-Length: %d\r\n", response->content_length);
   }
-  buffer_bookkeeping(bytes = snprintf(buf + size, remaining, "\r\n");)
+  grwprintf(&printctx, "\r\n");
   if (response->body) {
-    if (response->content_length > remaining) {
-      buf = realloc(buf, size + response->content_length);
-    }
-    memcpy(buf + size, response->body, response->content_length);
-    size += response->content_length;
+    grwmemcpy(&printctx, response->body, response->content_length);
   }
   header = response->headers;
   while (header) {
@@ -920,9 +928,9 @@ void http_respond(http_request_t* session, http_response_t* response) {
   }
   free(response);
   free(session->buf);
-  session->buf = buf;
+  session->buf = printctx.buf;
   session->bytes = 0;
-  session->capacity = size;
+  session->capacity = printctx.size;
   HTTP_FLAG_SET(session->flags, HTTP_RESPONSE_READY);
   if (HTTP_FLAG_CHECK(session->flags, HTTP_RESPONSE_PAUSED)) {
     HTTP_FLAG_CLEAR(session->flags, HTTP_RESPONSE_PAUSED);
