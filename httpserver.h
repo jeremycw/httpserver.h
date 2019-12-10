@@ -1,28 +1,56 @@
-/******************************************************************************
- *
- * MIT License
- * 
- * Copyright (c) 2019 Jeremy Williams
- * 
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- * 
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- * 
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
- *
- *****************************************************************************/
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+*
+* MIT License
+* 
+* Copyright (c) 2019 Jeremy Williams
+* 
+* Permission is hereby granted, free of charge, to any person obtaining a copy
+* of this software and associated documentation files (the "Software"), to deal
+* in the Software without restriction, including without limitation the rights
+* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the Software is
+* furnished to do so, subject to the following conditions:
+* 
+* The above copyright notice and this permission notice shall be included in all
+* copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+* SOFTWARE.
+*
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+*
+* httpserver.h (0.1.0)
+*
+* Description:
+*
+*   A single header C library for building event driven HTTP servers
+*
+* Usage:
+*
+*   This library depends on libev so you will need to install it first. When
+*   linking you can supply the -lev linker flag to link libev.
+*
+*   Do this:
+*      #define HTTPSERVER_IMPL
+*   before you include this file in *one* C or C++ file to create the
+*   implementation.
+*
+*   // i.e. it should look like this:
+*   #include ...
+*   #include ...
+*   #include ...
+*   #define HTTPSERVER_IMPL
+*   #include "httpserver.h"
+*
+*   For more details see the documentation of the interface and the example
+*   below.
+*
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 #ifndef HTTPSERVER_H
 #define HTTPSERVER_H
@@ -942,7 +970,7 @@ void http_respond(http_request_t* session, http_response_t* response) {
     free(tmp);
   }
   free(response);
-  free(session->buf);
+  free_buffer(session);
   session->buf = printctx.buf;
   session->bytes = 0;
   session->capacity = printctx.size;
