@@ -1,3 +1,29 @@
+/******************************************************************************
+ *
+ * MIT License
+ * 
+ * Copyright (c) 2019 Jeremy Williams
+ * 
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ * 
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ *
+ *****************************************************************************/
+
 #ifndef HTTPSERVER_H
 #define HTTPSERVER_H
 
@@ -49,34 +75,27 @@ int http_request_iterate_headers(
   int* iter
 );
 
-#define HTTP_KEEP_ALIVE 0x8
-#define HTTP_CLOSE 0x2
-#define HTTP_AUTOMATIC 0x1
+#define HTTP_KEEP_ALIVE 1
+#define HTTP_CLOSE 0
 
-// Sets how the server handles the connection after the response has been
-// delivered. By default the server will always keep the connection alive for
-// a period of time after a request has been completed regardless of the
-// Connection header sent by the client. This behaviour can be changed by
-// calling this function with any of the following directives:
-//
-//   HTTP_KEEP_ALIVE - keeps the connection alive after request completes.
-//                     (default)
-//
-//   HTTP_CLOSE - Always closes the connection after the request completes.
-//
-//   HTTP_AUTOMATIC - Takes the Connection header and HTTP version into account
-//                    and handles keep alive accordingly.
-//
+// By default the server will inspect the Connection header and the HTTP
+// version to determine whether the connection should be kept alive or not.
+// Use this function to override that behaviour to force the connection to
+// keep-alive or close by passing in the HTTP_KEEP_ALIVE or HTTP_CLOSE
+// directives respectively. This may provide a minor performance improvement
+// in cases where you control client and server and want to always close or
+// keep the connection alive.
 void http_request_connection(struct http_request_s* request, int directive);
 
 // Allocates an http response. This memory will be freed when http_respond is
 // called.
 struct http_response_s* http_response_init();
 
-// Set the response status.
+// Set the response status. Accepts values between 100 and 599 inclusive. Any
+// other value will map to 500.
 void http_response_status(struct http_response_s* response, int status);
 
-// Set a response header.
+// Set a response header. Takes two null terminated strings.
 void http_response_header(struct http_response_s* response, char const * key, char const * value);
 
 // Set the response body. The caller is responsible for freeing any memory that
@@ -87,6 +106,26 @@ void http_response_body(struct http_response_s* response, char const * body, int
 // Starts writing the response to the client. Any memory allocated for the
 // response body or response headers is safe to free after this call.
 void http_respond(struct http_request_s* request, struct http_response_s* response);
+
+// Minimal example usage.
+#ifdef HTTPSERVER_EXAMPLE
+
+#define RESPONSE "Hello, World!"
+
+void handle_request(struct http_request_s* request) {
+  struct http_response_s* response = http_response_init();
+  http_response_status(response, 200);
+  http_response_header(response, "Content-Type", "text/plain");
+  http_response_body(response, RESPONSE, sizeof(RESPONSE) - 1);
+  http_respond(request, response);
+}
+
+int main() {
+  struct http_server_s* server = http_server_init(8080, handle_request);
+  http_server_listen(server);
+}
+
+#endif
 
 #endif
 
@@ -307,6 +346,7 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n) {
 
 #define HTTP_READY 0x2
 #define HTTP_RESPONSE_READY 0x4
+#define HTTP_AUTOMATIC 0x8
 #define HTTP_RESPONSE_PAUSED 0x10
 
 #define HTTP_FLAG_SET(var, flag) var |= flag
@@ -419,7 +459,7 @@ void parse_tokens(http_request_t* session) {
 }
 
 void init_session(http_request_t* session) {
-  session->flags |= HTTP_KEEP_ALIVE;
+  session->flags |= HTTP_AUTOMATIC;
   session->parser = (http_parser_t){ };
   session->bytes = 0;
   session->buf = NULL;
@@ -697,20 +737,18 @@ void auto_detect_keep_alive(http_request_t* request) {
     (str.len == 0 && version == HTTP_1_0)
   ) {
     HTTP_FLAG_CLEAR(request->flags, HTTP_KEEP_ALIVE);
+  } else {
+    HTTP_FLAG_SET(request->flags, HTTP_KEEP_ALIVE);
   }
 }
 
 void http_request_connection(http_request_t* request, int directive) {
-  switch (directive) {
-    case HTTP_KEEP_ALIVE:
-      HTTP_FLAG_SET(request->flags, HTTP_KEEP_ALIVE);
-      break;
-    case HTTP_CLOSE:
-      HTTP_FLAG_CLEAR(request->flags, HTTP_KEEP_ALIVE);
-      break;
-    case HTTP_AUTOMATIC:
-      auto_detect_keep_alive(request);
-      break;
+  if (directive == HTTP_KEEP_ALIVE) {
+    HTTP_FLAG_CLEAR(request->flags, HTTP_AUTOMATIC);
+    HTTP_FLAG_SET(request->flags, HTTP_KEEP_ALIVE);
+  } else if (directive == HTTP_CLOSE) {
+    HTTP_FLAG_CLEAR(request->flags, HTTP_AUTOMATIC);
+    HTTP_FLAG_CLEAR(request->flags, HTTP_KEEP_ALIVE);
   }
 }
 
@@ -762,6 +800,7 @@ char const * status_text[] = {
   //200s
   "OK", "Created", "Accepted", "Non-Authoratative Information", "No Content",
   "Reset Content", "Partial Content", "", "", "",
+
   "", "", "", "", "", "", "", "", "", "",
   "", "", "", "", "", "", "", "", "", "",
   "", "", "", "", "", "", "", "", "", "",
@@ -774,6 +813,7 @@ char const * status_text[] = {
   //300s
   "Multiple Choices", "Moved Permanently", "Found", "See Other", "Not Modified",
   "Use Proxy", "", "Temporary Redirect", "", "",
+
   "", "", "", "", "", "", "", "", "", "",
   "", "", "", "", "", "", "", "", "", "",
   "", "", "", "", "", "", "", "", "", "",
@@ -788,6 +828,7 @@ char const * status_text[] = {
   "Bad Request", "Unauthorized", "Payment Required", "Forbidden", "Not Found",
   "Method Not Allowed", "Not Acceptable", "Proxy Authentication Required",
   "Request Timeout", "Conflict",
+
   "Gone", "Length Required", "", "", "", "", "", "", "", "",
   "", "", "", "", "", "", "", "", "", "",
   "", "", "", "", "", "", "", "", "", "",
@@ -800,6 +841,16 @@ char const * status_text[] = {
   //500s
   "Internal Server Error", "Not Implemented", "Bad Gateway", "Service Unavailable",
   "Gateway Timeout", "", "", "", "", ""
+
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", ""
 };
 
 http_response_t* http_response_init() {
@@ -818,7 +869,7 @@ void http_response_header(http_response_t* response, char const * key, char cons
 }
 
 void http_response_status(http_response_t* response, int status) {
-  response->status = status;
+  response->status = status > 599 || status < 100 ? 500 : status;
 }
 
 void http_response_body(http_response_t* response, char const * body, int length) {
@@ -842,6 +893,9 @@ void http_respond(http_request_t* session, http_response_t* response) {
   int capacity = RESPONSE_BUF_SIZE;
   int remaining = RESPONSE_BUF_SIZE;
   int size = 0;
+  if (HTTP_FLAG_CHECK(session->flags, HTTP_AUTOMATIC)) {
+    auto_detect_keep_alive(session);
+  }
   if (HTTP_FLAG_CHECK(session->flags, HTTP_KEEP_ALIVE)) {
     http_response_header(response, "Connection", "keep-alive");
   } else {
