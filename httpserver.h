@@ -314,7 +314,7 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n) {
 #define HTTP_FLAG_CHECK(var, flag) (var & flag)
 
 typedef struct {
-  type* buf;
+  http_token_t* buf;
   int capacity;
   int size;
 } http_token_dyn_t;
@@ -346,17 +346,17 @@ typedef struct http_server_s {
   char* date;
 } http_server_t;
 
-void http_token_dyn_push(http_token_dyn_t* dyn, type a) {
+void http_token_dyn_push(http_token_dyn_t* dyn, http_token_t a) {
   if (dyn->size == dyn->capacity) {
     dyn->capacity *= 2;
-    dyn->buf = realloc(dyn->buf, dyn->capacity * sizeof(type));
+    dyn->buf = realloc(dyn->buf, dyn->capacity * sizeof(http_token_t));
   }
   dyn->buf[dyn->size] = a;
   dyn->size++;
 }
 
 void http_token_dyn_init(http_token_dyn_t* dyn, int capacity) {
-  dyn->buf = malloc(sizeof(type) * capacity);
+  dyn->buf = malloc(sizeof(http_token_t) * capacity);
   dyn->size = 0;
   dyn->capacity = capacity;
 }
