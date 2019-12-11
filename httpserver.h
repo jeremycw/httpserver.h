@@ -24,16 +24,13 @@
 *
 * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
 *
-* httpserver.h (0.1.0)
+* httpserver.h (0.2.0)
 *
 * Description:
 *
 *   A single header C library for building event driven HTTP servers
 *
 * Usage:
-*
-*   This library depends on libev so you will need to install it first. When
-*   linking you can supply the -lev linker flag to link libev.
 *
 *   Do this:
 *      #define HTTPSERVER_IMPL
@@ -189,6 +186,12 @@ int main() {
 #ifndef HTTPSERVER_IMPL_ONCE
 #define HTTPSERVER_IMPL_ONCE
 
+#ifdef __linux__
+#define EPOLL
+#else
+#define KQUEUE
+#endif
+
 #include <time.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -198,7 +201,24 @@ int main() {
 #include <unistd.h>
 #include <string.h>
 #include <stdarg.h>
+
+#ifdef KQUEUE
 #include <sys/event.h>
+
+void http_server_listen_cb(struct kevent* ev);
+void http_session_io_cb(struct kevent* ev);
+#elif EPOLL
+#include <sys/epoll.h>
+#include <sys/timerfd.h>
+
+typedef void (*epoll_cb_t)(struct epoll_event*);
+
+void http_server_listen_cb(struct epoll_event* ev);
+void http_session_io_cb(struct epoll_event* ev);
+void http_server_timer_cb(struct epoll_event* ev);
+void http_request_timer_cb(struct epoll_event* ev);
+
+#endif
 
 /******************************************************************************
  *
@@ -377,11 +397,21 @@ typedef struct {
 } http_token_dyn_t;
 
 typedef struct http_ev_cb_s {
+#ifdef KQUEUE
   void (*handler)(struct kevent* ev);
+#elif EPOLL
+  epoll_cb_t handler;
+#endif
 } ev_cb_t;
 
 typedef struct http_request_s {
+#ifdef KQUEUE
   void (*handler)(struct kevent* ev);
+#elif EPOLL
+  epoll_cb_t handler;
+  epoll_cb_t timer_handler;
+  int timerfd;
+#endif
   http_parser_t parser;
   int state;
   int socket;
@@ -396,7 +426,12 @@ typedef struct http_request_s {
 } http_request_t;
 
 typedef struct http_server_s {
+#ifdef KQUEUE
   void (*handler)(struct kevent* ev);
+#elif EPOLL
+  epoll_cb_t handler;
+  epoll_cb_t timer_handler;
+#endif
   int socket;
   int port;
   int loop;
@@ -517,9 +552,14 @@ int reading_body(http_request_t* request) {
 }
 
 void end_session(http_request_t* session) {
+#ifdef KQUEUE
   struct kevent ev_set;
   EV_SET(&ev_set, session->socket, EVFILT_TIMER, EV_DELETE, 0, 0, session);
   kevent(session->server->loop, &ev_set, 1, NULL, 0, NULL);
+#elif EPOLL
+  epoll_ctl(request->server->loop, EPOLL_CTL_DEL, request->socket, NULL);
+  epoll_ctl(request->server->loop, EPOLL_CTL_DEL, request->timerfd, NULL);
+#endif
 
   close(session->socket);
   free_buffer(session);
@@ -538,10 +578,18 @@ void reset_timeout(http_request_t* request, int time) {
 void write_response(http_request_t* request) {
   if (!write_client_socket(request)) { return end_session(request); }
   if (request->bytes != request->capacity) {
+#ifdef KQUEUE
     struct kevent ev_set[2];
     EV_SET(&ev_set[0], request->socket, EVFILT_READ, EV_DELETE, 0, 0, NULL);
     EV_SET(&ev_set[1], request->socket, EVFILT_WRITE, EV_ADD, 0, 0, request);
     kevent(request->server->loop, ev_set, 2, NULL, 0, NULL);
+#elif EPOLL
+    struct epoll_event ev;
+    ev.events = EPOLLOUT;
+    ev.data.ptr = session;
+    epoll_ctl(request->server->loop, EPOLL_CTL_MOD, request->socket, &ev)
+#endif
+
     request->state = HTTP_SESSION_WRITE;
     reset_timeout(request, 20);
   } else if (HTTP_FLAG_CHECK(request->flags, HTTP_KEEP_ALIVE)) {
@@ -590,16 +638,6 @@ void http_session(http_request_t* request) {
   }
 }
 
-void http_session_io_cb(struct kevent* ev) {
-  http_request_t* request = (http_request_t*)ev->udata;
-  if (ev->filter == EVFILT_TIMER) {
-    request->timeout -= 1;
-    if (request->timeout == 0) end_session(request);
-  } else {
-    http_session(request);
-  }
-}
-
 void accept_connections(http_server_t* server) {
   while (errno != EWOULDBLOCK) {
     int sock = accept(server->socket, (struct sockaddr *)&server->addr, &server->len);
@@ -610,13 +648,32 @@ void accept_connections(http_server_t* server) {
       int flags = fcntl(sock, F_GETFL, 0);
       fcntl(sock, F_SETFL, flags | O_NONBLOCK);
 
+#ifdef KQUEUE
       struct kevent ev_set[2];
       EV_SET(&ev_set[0], sock, EVFILT_READ, EV_ADD, 0, 0, session);
-
       EV_SET(&ev_set[1], sock, EVFILT_TIMER, EV_ADD | EV_ENABLE, NOTE_SECONDS, 1, session);
       kevent(server->loop, ev_set, 2, NULL, 0, NULL);
+#elif EPOLL
+      session->timer_handler = http_request_timer_cb;
+      struct epoll_event ev;
+      ev.events = EPOLLIN;
+      ev.data.ptr = session;
+      epoll_ctl(server->loop, EPOLL_CTL_ADD, sock, &ev)
 
-      http_session(session); //need?
+      int tfd = timerfd_create(CLOCK_MONOTONIC, 0);
+      struct itimerspec ts = {};
+      ts.it_value.tv_sec = 1;
+      ts.it_interval.tv_sec = 1;
+      timerfd_settime(tfd, 0, &ts, NULL);
+
+      struct epoll_event ev;
+      ev.events = EPOLLIN;
+      ev.data.ptr = &serv->timer_handler;
+      epoll_ctl(serv->loop, EPOLL_CTL_ADD, tfd, &ev);
+      session->timerfd = tfd;
+#endif
+
+      http_session(session);
     }
   }
   errno = 0;
@@ -630,6 +687,7 @@ void generate_date_time(char** datetime) {
   *datetime = asctime(timeinfo);
 }
 
+#ifdef KQUEUE
 void http_server_listen_cb(struct kevent* ev) {
   http_server_t* server = (http_server_t*)ev->udata;
   if (ev->filter == EVFILT_TIMER) {
@@ -639,15 +697,63 @@ void http_server_listen_cb(struct kevent* ev) {
   }
 }
 
+void http_session_io_cb(struct kevent* ev) {
+  http_request_t* request = (http_request_t*)ev->udata;
+  if (ev->filter == EVFILT_TIMER) {
+    request->timeout -= 1;
+    if (request->timeout == 0) end_session(request);
+  } else {
+    http_session(request);
+  }
+}
+
+#elif EPOLL
+void http_server_listen_cb(struct epoll_event* ev) {
+  accept_connections((http_server_t*)ev->data.ptr);
+}
+
+void http_session_io_cb(struct epoll_event* ev) {
+  http_session((http_request_t*)ev->data.ptr);
+}
+
+void http_server_timer_cb(struct epoll_event* ev) {
+  http_server_t* server = (http_server_t*)(ev->data.ptr - sizeof(epoll_cb_t));
+  generate_date_time(&server->date);
+}
+
+void http_request_timer_cb(struct epoll_event* ev) {
+  http_request_t* request = (http_request_t*)(ev->data.ptr - sizeof(epoll_cb_t));
+  request->timeout -= 1;
+  if (request->timeout == 0) end_session(request);
+}
+#endif
+
 http_server_t* http_server_init(int port, void (*handler)(http_request_t*)) {
   http_server_t* serv = malloc(sizeof(http_server_t));
   serv->port = port;
-  serv->loop = kqueue();
   serv->handler = http_server_listen_cb;
+
+#ifdef KQUEUE
+  serv->loop = kqueue();
 
   struct kevent ev_set;
   EV_SET(&ev_set, serv->socket, EVFILT_TIMER, EV_ADD | EV_ENABLE, NOTE_SECONDS, 1, serv);
   kevent(serv->loop, &ev_set, 1, NULL, 0, NULL);
+#elif EPOLL
+  serv->loop = epoll_create1(0);
+  serv->timer_handler = http_server_timer_cb;
+
+  int tfd = timerfd_create(CLOCK_MONOTONIC, 0);
+  struct itimerspec ts = {};
+  ts.it_value.tv_sec = 1;
+  ts.it_interval.tv_sec = 1;
+  timerfd_settime(tfd, 0, &ts, NULL);
+
+  struct epoll_event ev;
+  ev.events = EPOLLIN;
+  ev.data.ptr = &serv->timer_handler;
+  epoll_ctl(serv->loop, EPOLL_CTL_ADD, tfd, &ev)
+#endif
 
   generate_date_time(&serv->date);
   serv->request_handler = handler;
@@ -658,6 +764,7 @@ int http_server_listen(http_server_t* serv) {
   signal(SIGPIPE, SIG_IGN);
   http_listen(serv);
 
+#ifdef KQUEUE
   struct kevent ev_set;
   EV_SET(&ev_set, serv->socket, EVFILT_READ, EV_ADD, 0, 0, serv);
   kevent(serv->loop, &ev_set, 1, NULL, 0, NULL);
@@ -671,6 +778,21 @@ int http_server_listen(http_server_t* serv) {
       ev_cb->handler(&ev_list[i]);
     }
   }
+#elif EPOLL
+  struct epoll_event ev, ev_list[32];
+  ev.events = EPOLLIN;
+  ev.data.ptr = serv;
+  epoll_ctl(serv->loop, EPOLL_CTL_ADD, serv->socket, &ev)
+
+  while (1) {
+    int nev = epoll_wait(serv->loop, ev_list, 32, -1);
+    for (int i = 0; i < nev; i++) {
+      ev_cb_t* ev_cb = (ev_cb_t*)ev_list[i].data.ptr;
+      ev_cb->handler(&ev_list[i]);
+    }
+  }
+#endif
+
   return 0;
 }
 
