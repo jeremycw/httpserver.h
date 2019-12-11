@@ -70,8 +70,20 @@ struct http_server_s;
 struct http_request_s;
 struct http_response_s;
 
-// Returns the libev event loop that the server is running on. Can be used to
-// perform event driven io during a request. See libev man for more information
+// Returns the event loop id that the server is running on. This will be an
+// epoll fd when running on Linux or a kqueue on BSD. This can be used to
+// listen for activity on sockets, etc. The only caveat is that the user data
+// must be set to a struct where the first member is the function pointer to
+// a callback that will handle the event. i.e:
+//
+// For kevent:
+//
+//   struct foo {
+//     void (*handler)(struct kevent*);
+//     ...
+//   }
+//
+//   // Set udata to a foo pointer when registering the event.
 int http_server_loop(struct http_server_s* server);
 
 // Allocates and initializes the http server. Takes a port and a function
@@ -386,7 +398,7 @@ typedef struct http_server_s {
   void (*handler)(struct kevent* ev);
   int socket;
   int port;
-  int kq;
+  int loop;
   socklen_t len;
   void (*request_handler)(http_request_t*);
   struct sockaddr_in addr;
@@ -507,7 +519,7 @@ void end_session(http_request_t* session) {
   struct kevent ev_set[2];
   EV_SET(&ev_set[0], session->socket, EVFILT_READ, EV_DELETE, 0, 0, NULL);
   EV_SET(&ev_set[1], session->socket, EVFILT_WRITE, EV_DELETE, 0, 0, NULL);
-  kevent(session->server->kq, ev_set, 2, NULL, 0, NULL);
+  kevent(session->server->loop, ev_set, 2, NULL, 0, NULL);
 
   close(session->socket);
   free_buffer(session);
@@ -519,7 +531,10 @@ void end_session(http_request_t* session) {
 #define HTTP_SESSION_READ_BODY 2
 #define HTTP_SESSION_WRITE 3
 
-void reset_timeout(http_request_t* request, float time) {
+void reset_timeout(http_request_t* request, int time) {
+  struct kevent ev_set;
+  EV_SET(&ev_set, request->socket, EVFILT_TIMER, EV_ENABLE | EV_ONESHOT, NOTE_SECONDS, time, request);
+  kevent(request->server->loop, &ev_set, 1, NULL, 0, NULL);
 }
 
 void write_response(http_request_t* request) {
@@ -528,7 +543,7 @@ void write_response(http_request_t* request) {
     struct kevent ev_set[2];
     EV_SET(&ev_set[0], request->socket, EVFILT_READ, EV_DELETE, 0, 0, NULL);
     EV_SET(&ev_set[1], request->socket, EVFILT_WRITE, EV_ADD, 0, 0, request);
-    kevent(request->server->kq, ev_set, 2, NULL, 0, NULL);
+    kevent(request->server->loop, ev_set, 2, NULL, 0, NULL);
     request->state = HTTP_SESSION_WRITE;
     reset_timeout(request, 20.f);
   } else if (HTTP_FLAG_CHECK(request->flags, HTTP_KEEP_ALIVE)) {
@@ -578,7 +593,11 @@ void http_session(http_request_t* request) {
 }
 
 void http_session_io_cb(struct kevent* ev) {
-  http_session((http_request_t*)ev->udata);
+  if (ev->filter == EVFILT_TIMER) {
+    end_session((http_request_t*)ev->udata);
+  } else {
+    http_session((http_request_t*)ev->udata);
+  }
 }
 
 void accept_connections(http_server_t* server) {
@@ -591,18 +610,16 @@ void accept_connections(http_server_t* server) {
       int flags = fcntl(sock, F_GETFL, 0);
       fcntl(sock, F_SETFL, flags | O_NONBLOCK);
 
-      struct kevent ev_set;
-      EV_SET(&ev_set, sock, EVFILT_READ, EV_ADD, 0, 0, session);
-      kevent(server->kq, &ev_set, 1, NULL, 0, NULL);
+      struct kevent ev_set[2];
+      EV_SET(&ev_set[0], sock, EVFILT_READ, EV_ADD, 0, 0, session);
+
+      EV_SET(&ev_set[1], sock, EVFILT_TIMER, EV_ADD | EV_ENABLE | EV_ONESHOT, NOTE_SECONDS, 20, session);
+      kevent(server->loop, ev_set, 2, NULL, 0, NULL);
 
       http_session(session); //need?
     }
   }
   errno = 0;
-}
-
-void http_server_listen_cb(struct kevent* ev) {
-  accept_connections((http_server_t*)ev->udata);
 }
 
 void generate_date_time(char** datetime) {
@@ -613,11 +630,25 @@ void generate_date_time(char** datetime) {
   *datetime = asctime(timeinfo);
 }
 
+void http_server_listen_cb(struct kevent* ev) {
+  http_server_t* server = (http_server_t*)ev->udata;
+  if (ev->filter == EVFILT_TIMER) {
+    generate_date_time(&server->date);
+  } else {
+    accept_connections(server);
+  }
+}
+
 http_server_t* http_server_init(int port, void (*handler)(http_request_t*)) {
   http_server_t* serv = malloc(sizeof(http_server_t));
   serv->port = port;
-  serv->kq = kqueue();
+  serv->loop = kqueue();
   serv->handler = http_server_listen_cb;
+
+  struct kevent ev_set;
+  EV_SET(&ev_set, serv->socket, EVFILT_TIMER, EV_ADD | EV_ENABLE, NOTE_SECONDS, 1, serv);
+  kevent(serv->loop, &ev_set, 1, NULL, 0, NULL);
+
   generate_date_time(&serv->date);
   serv->request_handler = handler;
   return serv;
@@ -629,12 +660,12 @@ int http_server_listen(http_server_t* serv) {
 
   struct kevent ev_set;
   EV_SET(&ev_set, serv->socket, EVFILT_READ, EV_ADD, 0, 0, serv);
-  kevent(serv->kq, &ev_set, 1, NULL, 0, NULL);
+  kevent(serv->loop, &ev_set, 1, NULL, 0, NULL);
 
   struct kevent ev_list[32];
 
   while (1) {
-    int nev = kevent(serv->kq, NULL, 0, ev_list, 32, NULL);
+    int nev = kevent(serv->loop, NULL, 0, ev_list, 32, NULL);
     for (int i = 0; i < nev; i++) {
       ev_cb_t* ev_cb = (ev_cb_t*)ev_list[i].udata;
       ev_cb->handler(&ev_list[i]);
@@ -644,7 +675,7 @@ int http_server_listen(http_server_t* serv) {
 }
 
 int http_server_loop(http_server_t* server) {
-  return server->kq;
+  return server->loop;
 }
 
 /******************************************************************************
