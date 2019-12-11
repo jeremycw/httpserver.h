@@ -388,6 +388,7 @@ typedef struct http_request_s {
   char* buf;
   int bytes;
   int capacity;
+  int timeout;
   struct http_server_s* server;
   http_token_t token;
   http_token_dyn_t tokens;
@@ -516,10 +517,9 @@ int reading_body(http_request_t* request) {
 }
 
 void end_session(http_request_t* session) {
-  struct kevent ev_set[2];
-  EV_SET(&ev_set[0], session->socket, EVFILT_READ, EV_DELETE, 0, 0, NULL);
-  EV_SET(&ev_set[1], session->socket, EVFILT_WRITE, EV_DELETE, 0, 0, NULL);
-  kevent(session->server->loop, ev_set, 2, NULL, 0, NULL);
+  struct kevent ev_set;
+  EV_SET(&ev_set, session->socket, EVFILT_TIMER, EV_DELETE, 0, 0, session);
+  kevent(session->server->loop, &ev_set, 1, NULL, 0, NULL);
 
   close(session->socket);
   free_buffer(session);
@@ -532,9 +532,7 @@ void end_session(http_request_t* session) {
 #define HTTP_SESSION_WRITE 3
 
 void reset_timeout(http_request_t* request, int time) {
-  struct kevent ev_set;
-  EV_SET(&ev_set, request->socket, EVFILT_TIMER, EV_ENABLE | EV_ONESHOT, NOTE_SECONDS, time, request);
-  kevent(request->server->loop, &ev_set, 1, NULL, 0, NULL);
+  request->timeout = time;
 }
 
 void write_response(http_request_t* request) {
@@ -545,11 +543,11 @@ void write_response(http_request_t* request) {
     EV_SET(&ev_set[1], request->socket, EVFILT_WRITE, EV_ADD, 0, 0, request);
     kevent(request->server->loop, ev_set, 2, NULL, 0, NULL);
     request->state = HTTP_SESSION_WRITE;
-    reset_timeout(request, 20.f);
+    reset_timeout(request, 20);
   } else if (HTTP_FLAG_CHECK(request->flags, HTTP_KEEP_ALIVE)) {
     request->state = HTTP_SESSION_INIT;
     free_buffer(request);
-    reset_timeout(request, 120.f);
+    reset_timeout(request, 120);
   } else {
     return end_session(request);
   }
@@ -579,12 +577,12 @@ void http_session(http_request_t* request) {
       } else if (!parsing_headers(request)) {
         return exec_response_handler(request);
       }
-      reset_timeout(request, 20.f);
+      reset_timeout(request, 20);
       break;
     case HTTP_SESSION_READ_BODY:
       if (!read_client_socket(request)) { return end_session(request); }
       if (!reading_body(request)) { return exec_response_handler(request); }
-      reset_timeout(request, 20.f);
+      reset_timeout(request, 20);
       break;
     case HTTP_SESSION_WRITE:
       write_response(request);
@@ -593,10 +591,12 @@ void http_session(http_request_t* request) {
 }
 
 void http_session_io_cb(struct kevent* ev) {
+  http_request_t* request = (http_request_t*)ev->udata;
   if (ev->filter == EVFILT_TIMER) {
-    end_session((http_request_t*)ev->udata);
+    request->timeout -= 1;
+    if (request->timeout == 0) end_session(request);
   } else {
-    http_session((http_request_t*)ev->udata);
+    http_session(request);
   }
 }
 
@@ -605,7 +605,7 @@ void accept_connections(http_server_t* server) {
     int sock = accept(server->socket, (struct sockaddr *)&server->addr, &server->len);
     if (sock > 0) {
       http_request_t* session = malloc(sizeof(http_request_t));
-      *session = (http_request_t) { .socket = sock, .server = server };
+      *session = (http_request_t) { .socket = sock, .server = server, .timeout = 20 };
       session->handler = http_session_io_cb;
       int flags = fcntl(sock, F_GETFL, 0);
       fcntl(sock, F_SETFL, flags | O_NONBLOCK);
@@ -613,7 +613,7 @@ void accept_connections(http_server_t* server) {
       struct kevent ev_set[2];
       EV_SET(&ev_set[0], sock, EVFILT_READ, EV_ADD, 0, 0, session);
 
-      EV_SET(&ev_set[1], sock, EVFILT_TIMER, EV_ADD | EV_ENABLE | EV_ONESHOT, NOTE_SECONDS, 20, session);
+      EV_SET(&ev_set[1], sock, EVFILT_TIMER, EV_ADD | EV_ENABLE, NOTE_SECONDS, 1, session);
       kevent(server->loop, ev_set, 2, NULL, 0, NULL);
 
       http_session(session); //need?
