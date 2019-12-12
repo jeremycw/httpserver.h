@@ -406,7 +406,7 @@ typedef struct http_ev_cb_s {
 } ev_cb_t;
 
 typedef struct http_request_s {
-#if KQUEUE
+#ifdef KQUEUE
   void (*handler)(struct kevent* ev);
 #else
   epoll_cb_t handler;
