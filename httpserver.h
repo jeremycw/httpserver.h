@@ -52,10 +52,6 @@
 #ifndef HTTPSERVER_H
 #define HTTPSERVER_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 // String type used to read the request details. The char pointer is NOT null
 // terminated.
 struct http_string_s {
@@ -155,10 +151,6 @@ void http_response_body(struct http_response_s* response, char const * body, int
 // Starts writing the response to the client. Any memory allocated for the
 // response body or response headers is safe to free after this call.
 void http_respond(struct http_request_s* request, struct http_response_s* response);
-
-#ifdef __cplusplus
-}
-#endif
 
 // Minimal example usage.
 #ifdef HTTPSERVER_EXAMPLE
