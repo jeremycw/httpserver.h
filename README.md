@@ -201,3 +201,20 @@ Percentage of the requests served within a certain time (ms)
   99%      9
  100%     11 (longest request)
 ```
+
+### NGINX conf
+
+```
+worker_processes 1;
+
+http {
+    server {
+        listen 8000;
+        location / {
+             add_header Content-Type text/plain;
+             return 200 'Hello, World!';
+        }
+    }
+}
+```
+
