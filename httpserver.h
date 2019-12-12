@@ -24,11 +24,12 @@
 *
 * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
 *
-* httpserver.h (0.2.0)
+* httpserver.h (0.3.0)
 *
 * Description:
 *
-*   A single header C library for building event driven HTTP servers
+*   A single header C library for building non-blocking event driven HTTP
+*   servers
 *
 * Usage:
 *
@@ -76,7 +77,16 @@ struct http_response_s;
 //     ...
 //   }
 //
-//   // Set udata to a foo pointer when registering the event.
+//   // Set ev.udata to a foo pointer when registering the event.
+//
+// For epoll:
+//
+//   struct foo {
+//     void (*handler)(struct epoll_event*);
+//     ...
+//   }
+//
+//   // Set ev.data.ptr to a foo pointer when registering the event.
 int http_server_loop(struct http_server_s* server);
 
 // Allocates and initializes the http server. Takes a port and a function
@@ -91,7 +101,8 @@ int http_server_listen(struct http_server_s* server);
 // Returns the request method as it was read from the HTTP request line.
 struct http_string_s http_request_method(struct http_request_s* request);
 
-// Returns the full request target as it was read from the HTTP request line.
+// Returns the full request target (url) as it was read from the HTTP request
+// line.
 struct http_string_s http_request_target(struct http_request_s* request);
 
 // Returns the request body. If no request body was sent buf and len of the
