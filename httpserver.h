@@ -359,7 +359,7 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n) {
             .len = parser->len
           };
         } else if (parser->in_content_length && parser->content_length != PAYLOAD_TOO_LARGE) {
-          int64_t new_content_length = parser->content_length * 10;
+          int64_t new_content_length = parser->content_length * 10l;
           new_content_length += c - '0';
           if (new_content_length > INT_MAX) {
             parser->content_length = PAYLOAD_TOO_LARGE;
