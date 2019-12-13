@@ -1,0 +1,6 @@
+language: c
+script: make test
+addons:
+  apt:
+    packages:
+    - apache2-utils

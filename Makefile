@@ -1,6 +1,6 @@
 .PHONY: test clean
 
-all: httpserver.h
+all: http-server
 
 test: http-server
 	./http-server & test/run > results.txt; kill %1; diff results.txt test/results.txt
