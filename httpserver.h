@@ -1151,9 +1151,7 @@ void http_respond(http_request_t* session, http_response_t* response) {
     grwprintf(&printctx, "%s: %s\r\n", header->key, header->value);
     header = header->next;
   }
-  if (response->body) {
-    grwprintf(&printctx, "Content-Length: %d\r\n", response->content_length);
-  }
+  grwprintf(&printctx, "Content-Length: %d\r\n", response->content_length);
   grwprintf(&printctx, "\r\n");
   if (response->body) {
     grwmemcpy(&printctx, response->body, response->content_length);
