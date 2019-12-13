@@ -24,7 +24,7 @@
 *
 * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
 *
-* httpserver.h (0.3.0)
+* httpserver.h (0.3.1)
 *
 * Description:
 *
@@ -213,6 +213,7 @@ int main() {
 #include <string.h>
 #include <stdarg.h>
 #include <signal.h>
+#include <limits.h>
 
 #ifdef KQUEUE
 #include <sys/event.h>
@@ -271,6 +272,7 @@ typedef struct {
 
 #define CONTENT_LENGTH_LOW "content-length"
 #define CONTENT_LENGTH_UP "CONTENT-LENGTH"
+#define PAYLOAD_TOO_LARGE -1
 
 http_token_t http_parse(http_parser_t* parser, char* input, int n) {
   for (int i = parser->start; i < n; ++i, parser->start = i + 1, parser->len++) {
@@ -356,9 +358,14 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n) {
             .type = HTTP_HEADER_VALUE,
             .len = parser->len
           };
-        } else if (parser->in_content_length) {
-          parser->content_length *= 10;
-          parser->content_length += c - '0';
+        } else if (parser->in_content_length && parser->content_length != PAYLOAD_TOO_LARGE) {
+          int64_t new_content_length = parser->content_length * 10;
+          new_content_length += c - '0';
+          if (new_content_length > INT_MAX) {
+            parser->content_length = PAYLOAD_TOO_LARGE;
+          } else {
+            parser->content_length = (int)new_content_length;
+          }
         }
         break;
       case HTTP_HEADER_END:
@@ -627,6 +634,15 @@ void exec_response_handler(http_request_t* request) {
   }
 }
 
+void error_response(http_request_t* request, int code, char const * message) {
+  struct http_response_s* response = http_response_init();
+  http_response_status(response, code);
+  http_response_header(response, "Content-Type", "text/plain");
+  http_response_body(response, message, strlen(message));
+  http_respond(request, response);
+  write_response(request);
+}
+
 void http_session(http_request_t* request) {
   switch (request->state) {
     case HTTP_SESSION_INIT:
@@ -636,7 +652,9 @@ void http_session(http_request_t* request) {
     case HTTP_SESSION_READ_HEADERS:
       if (!read_client_socket(request)) { return end_session(request); }
       parse_tokens(request);
-      if (reading_body(request)) {
+      if (!parsing_headers(request) && request->parser.content_length == PAYLOAD_TOO_LARGE) {
+        return error_response(request, 413, "Payload Too Large");
+      } else if (reading_body(request)) {
         request->state = HTTP_SESSION_READ_BODY;
       } else if (!parsing_headers(request)) {
         return exec_response_handler(request);
@@ -1028,7 +1046,7 @@ char const * status_text[] = {
   "Method Not Allowed", "Not Acceptable", "Proxy Authentication Required",
   "Request Timeout", "Conflict",
 
-  "Gone", "Length Required", "", "", "", "", "", "", "", "",
+  "Gone", "Length Required", "Payload Too Large", "", "", "", "", "", "", "",
   "", "", "", "", "", "", "", "", "", "",
   "", "", "", "", "", "", "", "", "", "",
   "", "", "", "", "", "", "", "", "", "",
