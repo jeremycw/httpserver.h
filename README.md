@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.com/jeremycw/httpserver.h.svg?branch=master)](https://travis-ci.com/jeremycw/httpserver.h)
+
 See `httpserver.h` for API documentation
 
 # Description
