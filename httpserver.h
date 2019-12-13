@@ -997,7 +997,7 @@ char const * status_text[] = {
   "", "", "", "", "", "", "", "", "", "",
 
   //200s
-  "OK", "Created", "Accepted", "Non-Authoratative Information", "No Content",
+  "OK", "Created", "Accepted", "Non-Authoritative Information", "No Content",
   "Reset Content", "Partial Content", "", "", "",
 
   "", "", "", "", "", "", "", "", "", "",
