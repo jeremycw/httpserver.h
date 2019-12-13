@@ -887,6 +887,7 @@ int assign_iteration_headers(
   int* iter
 ) {
   http_token_t token = request->tokens.buf[*iter];
+  if (request->tokens.buf[*iter].type == HTTP_BODY) return 0;
   *key = (http_string_t) {
     .buf = &request->buf[token.index],
     .len = token.len
@@ -897,7 +898,6 @@ int assign_iteration_headers(
     .buf = &request->buf[token.index],
     .len = token.len
   };
-  if (request->tokens.buf[*iter + 1].type == HTTP_BODY) return 0;
   return 1;
 }
 
