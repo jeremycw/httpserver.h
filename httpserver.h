@@ -1026,6 +1026,7 @@ char const * status_text[] = {
   "", "", "", "", "", "", "", "", "", "",
   "", "", "", "", "", "", "", "", "", "",
   "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
 
   //300s
   "Multiple Choices", "Moved Permanently", "Found", "See Other", "Not Modified",
@@ -1046,7 +1047,9 @@ char const * status_text[] = {
   "Method Not Allowed", "Not Acceptable", "Proxy Authentication Required",
   "Request Timeout", "Conflict",
 
-  "Gone", "Length Required", "Payload Too Large", "", "", "", "", "", "", "",
+  "Gone", "Length Required", "", "Payload Too Large", "", "", "", "", "", "",
+
+  "", "", "", "", "", "", "", "", "", "",
   "", "", "", "", "", "", "", "", "", "",
   "", "", "", "", "", "", "", "", "", "",
   "", "", "", "", "", "", "", "", "", "",
