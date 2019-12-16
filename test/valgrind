@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+
+valgrind --leak-check=full \
+         --show-leak-kinds=all \
+         --track-origins=yes \
+         --verbose \
+         --log-file=valgrind-log.txt \
+         ./http-server &
+serverpid=$!
+sleep 3
+test/run
+kill $serverpid
+sleep 2
+cat valgrind-log.txt | cut -d = -f 5 | grep ERROR > valgrind-results.txt
+cat valgrind-log.txt | cut -d = -f 5 | grep 'All heap blocks were freed' >> valgrind-results.txt
+cat valgrind-log.txt 1>&2

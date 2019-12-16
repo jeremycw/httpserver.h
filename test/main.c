@@ -1,3 +1,4 @@
+#include <signal.h>
 #define HTTPSERVER_IMPL
 #include "../httpserver.h"
 
@@ -39,7 +40,15 @@ void handle_request(struct http_request_s* request) {
   http_respond(request, response);
 }
 
+struct http_server_s* server;
+
+void handle_sigterm(int signum) {
+  free(server);
+  exit(0);
+}
+
 int main() {
-  struct http_server_s* server = http_server_init(8080, handle_request);
+  signal(SIGTERM, handle_sigterm);
+  server = http_server_init(8080, handle_request);
   http_server_listen(server);
 }

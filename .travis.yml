@@ -3,8 +3,11 @@ os:
   - osx
 
 language: c
-script: make test
+script:
+  - make test
+  - if [ "$TRAVIS_OS_NAME" = "linux" ]; then make valgrind; fi
 addons:
   apt:
     packages:
-    - apache2-utils
+      - apache2-utils
+      - valgrind
