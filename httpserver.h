@@ -807,23 +807,23 @@ int http_server_listen(http_server_t* serv) {
   EV_SET(&ev_set, serv->socket, EVFILT_READ, EV_ADD, 0, 0, serv);
   kevent(serv->loop, &ev_set, 1, NULL, 0, NULL);
 
-  struct kevent ev_list[32];
+  struct kevent ev_list[1];
 
   while (1) {
-    int nev = kevent(serv->loop, NULL, 0, ev_list, 32, NULL);
+    int nev = kevent(serv->loop, NULL, 0, ev_list, 1, NULL);
     for (int i = 0; i < nev; i++) {
       ev_cb_t* ev_cb = (ev_cb_t*)ev_list[i].udata;
       ev_cb->handler(&ev_list[i]);
     }
   }
 #else
-  struct epoll_event ev, ev_list[32];
+  struct epoll_event ev, ev_list[1];
   ev.events = EPOLLIN | EPOLLET;
   ev.data.ptr = serv;
   epoll_ctl(serv->loop, EPOLL_CTL_ADD, serv->socket, &ev);
 
   while (1) {
-    int nev = epoll_wait(serv->loop, ev_list, 32, -1);
+    int nev = epoll_wait(serv->loop, ev_list, 1, -1);
     for (int i = 0; i < nev; i++) {
       ev_cb_t* ev_cb = (ev_cb_t*)ev_list[i].data.ptr;
       ev_cb->handler(&ev_list[i]);
