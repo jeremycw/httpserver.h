@@ -1,3 +1,5 @@
-src/http_server.c
-corc
 http-server
+valgrind-log.txt
+test-results.txt
+valgrind-results.txt
+http-server.dSYM/

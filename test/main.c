@@ -43,6 +43,7 @@ void handle_request(struct http_request_s* request) {
 struct http_server_s* server;
 
 void handle_sigterm(int signum) {
+  (void)signum;
   free(server);
   exit(0);
 }

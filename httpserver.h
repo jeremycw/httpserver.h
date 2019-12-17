@@ -333,7 +333,7 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n) {
         } else if (
           (c == CONTENT_LENGTH_UP[parser->content_length_i] ||
             c == CONTENT_LENGTH_LOW[parser->content_length_i]) &&
-          parser->content_length_i < sizeof(CONTENT_LENGTH_LOW) - 1
+          parser->content_length_i < (int)sizeof(CONTENT_LENGTH_LOW) - 1
         ) {
           parser->content_length_i++;
         }
@@ -501,7 +501,7 @@ void http_listen(http_server_t* serv) {
 
 int read_client_socket(http_request_t* session) {
   if (!session->buf) {
-    session->buf = malloc(BUF_SIZE);
+    session->buf = calloc(1, BUF_SIZE);
     session->capacity = BUF_SIZE;
     http_token_dyn_init(&session->tokens, 32);
   }
@@ -753,6 +753,7 @@ void http_server_timer_cb(struct epoll_event* ev) {
   http_server_t* server = (http_server_t*)(ev->data.ptr - sizeof(epoll_cb_t));
   uint64_t res;
   int bytes = read(server->timerfd, &res, sizeof(res));
+  (void)bytes; // suppress warning
   generate_date_time(&server->date);
 }
 
@@ -760,6 +761,7 @@ void http_request_timer_cb(struct epoll_event* ev) {
   http_request_t* request = (http_request_t*)(ev->data.ptr - sizeof(epoll_cb_t));
   uint64_t res;
   int bytes = read(request->timerfd, &res, sizeof(res));
+  (void)bytes; // suppress warning
   request->timeout -= 1;
   if (request->timeout == 0) end_session(request);
 }
@@ -774,7 +776,7 @@ http_server_t* http_server_init(int port, void (*handler)(http_request_t*)) {
   serv->loop = kqueue();
 
   struct kevent ev_set;
-  EV_SET(&ev_set, serv->socket, EVFILT_TIMER, EV_ADD | EV_ENABLE, NOTE_SECONDS, 1, serv);
+  EV_SET(&ev_set, 1, EVFILT_TIMER, EV_ADD | EV_ENABLE, NOTE_SECONDS, 1, serv);
   kevent(serv->loop, &ev_set, 1, NULL, 0, NULL);
 #else
   serv->loop = epoll_create1(0);
