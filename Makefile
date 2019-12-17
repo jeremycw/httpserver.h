@@ -2,17 +2,20 @@
 
 all: http-server
 
-test: http-server
-	./http-server & test/run > results.txt; killall http-server; diff results.txt test/results.txt
+test: test-results.txt
+	 diff test-results.txt test/results.txt
 
 valgrind: valgrind-results.txt
 	diff valgrind-results.txt test/valgrind.txt
+
+test-results.txt: http-server
+	./http-server & test/run > test-results.txt; killall http-server;
 
 valgrind-results.txt: http-server
 	test/valgrind
 
 http-server: test/main.c httpserver.h
-	$(CC) -O3 test/main.c -o http-server
+	$(CC) -O3 -Wall -Wextra -Werror test/main.c -o http-server
 
 clean:
-	@rm http-server
+	@rm http-server *.txt
