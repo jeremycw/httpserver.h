@@ -753,6 +753,7 @@ void http_server_timer_cb(struct epoll_event* ev) {
   http_server_t* server = (http_server_t*)(ev->data.ptr - sizeof(epoll_cb_t));
   uint64_t res;
   int bytes = read(server->timerfd, &res, sizeof(res));
+  (void)bytes; // suppress warning
   generate_date_time(&server->date);
 }
 
@@ -760,6 +761,7 @@ void http_request_timer_cb(struct epoll_event* ev) {
   http_request_t* request = (http_request_t*)(ev->data.ptr - sizeof(epoll_cb_t));
   uint64_t res;
   int bytes = read(request->timerfd, &res, sizeof(res));
+  (void)bytes; // suppress warning
   request->timeout -= 1;
   if (request->timeout == 0) end_session(request);
 }
