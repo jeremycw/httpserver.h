@@ -24,7 +24,7 @@
 *
 * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
 *
-* httpserver.h (0.4.0)
+* httpserver.h (0.4.1)
 *
 * Description:
 *
@@ -1186,10 +1186,6 @@ void http_buffer_headers(
   http_response_t* response,
   grwprintf_t* printctx
 ) {
-  grwprintf(
-    printctx, "HTTP/1.1 %d %s\r\nDate: %.24s\r\n",
-    response->status, status_text[response->status], request->server->date
-  );
   http_header_t* header = response->headers;
   while (header) {
     grwprintf(printctx, "%s: %s\r\n", header->key, header->value);
@@ -1214,6 +1210,10 @@ void http_respond_headers(
   } else {
     http_response_header(response, "Connection", "close");
   }
+  grwprintf(
+    printctx, "HTTP/1.1 %d %s\r\nDate: %.24s\r\n",
+    response->status, status_text[response->status], request->server->date
+  );
   http_buffer_headers(request, response, printctx);
 }
 
@@ -1267,11 +1267,11 @@ void http_respond_chunk(
 
 void http_respond_chunk_end(http_request_t* request, http_response_t* response) {
   grwprintf_t printctx;
-  HTTP_FLAG_CLEAR(request->flags, HTTP_CHUNKED);
   grwprintf_init(&printctx, RESPONSE_BUF_SIZE);
-  grwprintf(&printctx, "0\r\n", response->content_length);
+  grwprintf(&printctx, "0\r\n");
   http_buffer_headers(request, response, &printctx);
   grwprintf(&printctx, "\r\n");
+  HTTP_FLAG_CLEAR(request->flags, HTTP_CHUNKED);
   http_end_response(request, response, &printctx);
 }
 
