@@ -24,7 +24,7 @@
 *
 * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
 *
-* httpserver.h (0.3.1)
+* httpserver.h (0.4.0)
 *
 * Description:
 *
@@ -127,6 +127,14 @@ int http_request_iterate_headers(
   int* iter
 );
 
+// Retrieve the opaque data pointer.
+void* http_request_userdata(struct http_request_s* request);
+
+// Stores a pointer for future retrieval. This is not used by the library in
+// any way and is strictly for you, the application programmer to make use
+// of.
+void http_request_set_userdata(struct http_request_s* request, void* data);
+
 #define HTTP_KEEP_ALIVE 1
 #define HTTP_CLOSE 0
 
@@ -166,6 +174,23 @@ void http_response_body(struct http_response_s* response, char const * body, int
 // Starts writing the response to the client. Any memory allocated for the
 // response body or response headers is safe to free after this call.
 void http_respond(struct http_request_s* request, struct http_response_s* response);
+
+// Writes a chunk to the client. The notify_done callback will be called when
+// the write is complete. This call consumes the response so a new response
+// will need to be initialized for each chunk. The response status of the
+// request will be the response status that is set when http_respond_chunk is
+// called the first time. Any headers set for the first call will be sent as
+// the response headers. Headers set for subsequent calls will be ignored.
+void http_respond_chunk(
+  struct http_request_s* request,
+  struct http_response_s* response,
+  void (*notify_done)(struct http_request_s*)
+);
+
+// Ends the chunked response. Any headers set before this call will be included
+// as what the HTTP spec refers to as 'trailers' which are essentially more
+// response headers.
+void http_respond_chunk_end(struct http_request_s* request, struct http_response_s* response);
 
 #ifdef __cplusplus
 }
@@ -404,6 +429,7 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n) {
 #define HTTP_RESPONSE_READY 0x4
 #define HTTP_AUTOMATIC 0x8
 #define HTTP_RESPONSE_PAUSED 0x10
+#define HTTP_CHUNKED 0x20
 
 #define HTTP_FLAG_SET(var, flag) var |= flag
 #define HTTP_FLAG_CLEAR(var, flag) var &= ~flag
@@ -431,6 +457,8 @@ typedef struct http_request_s {
   epoll_cb_t timer_handler;
   int timerfd;
 #endif
+  void (*chunk_cb)(struct http_request_s*);
+  void* data;
   http_parser_t parser;
   int state;
   int socket;
@@ -598,6 +626,8 @@ void reset_timeout(http_request_t* request, int time) {
   request->timeout = time;
 }
 
+void exec_response_handler(http_request_t* request, void (*handler)(http_request_t*));
+
 void write_response(http_request_t* request) {
   if (!write_client_socket(request)) { return end_session(request); }
   if (request->bytes != request->capacity) {
@@ -615,6 +645,12 @@ void write_response(http_request_t* request) {
 
     request->state = HTTP_SESSION_WRITE;
     reset_timeout(request, 20);
+  } else if (HTTP_FLAG_CHECK(request->flags, HTTP_CHUNKED)) {
+    request->state = HTTP_SESSION_WRITE;
+    reset_timeout(request, 20);
+    free_buffer(request);
+    HTTP_FLAG_CLEAR(request->flags, HTTP_RESPONSE_READY);
+    exec_response_handler(request, request->chunk_cb);
   } else if (HTTP_FLAG_CHECK(request->flags, HTTP_KEEP_ALIVE)) {
     request->state = HTTP_SESSION_INIT;
     free_buffer(request);
@@ -624,8 +660,8 @@ void write_response(http_request_t* request) {
   }
 }
 
-void exec_response_handler(http_request_t* request) {
-  request->server->request_handler(request);
+void exec_response_handler(http_request_t* request, void (*handler)(http_request_t*)) {
+  handler(request);
   if (HTTP_FLAG_CHECK(request->flags, HTTP_RESPONSE_READY)) {
     write_response(request);
   } else {
@@ -657,13 +693,15 @@ void http_session(http_request_t* request) {
       } else if (reading_body(request)) {
         request->state = HTTP_SESSION_READ_BODY;
       } else if (!parsing_headers(request)) {
-        return exec_response_handler(request);
+        return exec_response_handler(request, request->server->request_handler);
       }
       reset_timeout(request, 20);
       break;
     case HTTP_SESSION_READ_BODY:
       if (!read_client_socket(request)) { return end_session(request); }
-      if (!reading_body(request)) { return exec_response_handler(request); }
+      if (!reading_body(request)) {
+        return exec_response_handler(request, request->server->request_handler);
+      }
       reset_timeout(request, 20);
       break;
     case HTTP_SESSION_WRITE:
@@ -944,6 +982,14 @@ void http_request_free_buffer(http_request_t* request) {
   free_buffer(request);
 }
 
+void* http_request_userdata(http_request_t* request) {
+  return request->data;
+}
+
+void http_request_set_userdata(http_request_t* request, void* data) {
+  request->data = data;
+}
+
 #define HTTP_1_0 0
 #define HTTP_1_1 1
 
@@ -1135,48 +1181,98 @@ void grwprintf(grwprintf_t* ctx, char const * fmt, ...) {
   va_end(args);
 }
 
-void http_respond(http_request_t* session, http_response_t* response) {
-  if (HTTP_FLAG_CHECK(session->flags, HTTP_AUTOMATIC)) {
-    auto_detect_keep_alive(session);
+void http_buffer_headers(
+  http_request_t* request,
+  http_response_t* response,
+  grwprintf_t* printctx
+) {
+  grwprintf(
+    printctx, "HTTP/1.1 %d %s\r\nDate: %.24s\r\n",
+    response->status, status_text[response->status], request->server->date
+  );
+  http_header_t* header = response->headers;
+  while (header) {
+    grwprintf(printctx, "%s: %s\r\n", header->key, header->value);
+    header = header->next;
   }
-  if (HTTP_FLAG_CHECK(session->flags, HTTP_KEEP_ALIVE)) {
+  if (!HTTP_FLAG_CHECK(request->flags, HTTP_CHUNKED)) {
+    grwprintf(printctx, "Content-Length: %d\r\n", response->content_length);
+  }
+  grwprintf(printctx, "\r\n");
+}
+
+void http_respond_headers(
+  http_request_t* request,
+  http_response_t* response,
+  grwprintf_t* printctx
+) {
+  if (HTTP_FLAG_CHECK(request->flags, HTTP_AUTOMATIC)) {
+    auto_detect_keep_alive(request);
+  }
+  if (HTTP_FLAG_CHECK(request->flags, HTTP_KEEP_ALIVE)) {
     http_response_header(response, "Connection", "keep-alive");
   } else {
     http_response_header(response, "Connection", "close");
   }
+  http_buffer_headers(request, response, printctx);
+}
 
-  grwprintf_t printctx;
-  grwprintf_init(&printctx, RESPONSE_BUF_SIZE);
-  grwprintf(
-    &printctx, "HTTP/1.1 %d %s\r\nDate: %.24s\r\n",
-    response->status, status_text[response->status], session->server->date
-  );
+void http_end_response(http_request_t* request, http_response_t* response, grwprintf_t* printctx) {
   http_header_t* header = response->headers;
-  while (header) {
-    grwprintf(&printctx, "%s: %s\r\n", header->key, header->value);
-    header = header->next;
-  }
-  grwprintf(&printctx, "Content-Length: %d\r\n", response->content_length);
-  grwprintf(&printctx, "\r\n");
-  if (response->body) {
-    grwmemcpy(&printctx, response->body, response->content_length);
-  }
-  header = response->headers;
   while (header) {
     http_header_t* tmp = header;
     header = tmp->next;
     free(tmp);
   }
+  free_buffer(request);
   free(response);
-  free_buffer(session);
-  session->buf = printctx.buf;
-  session->bytes = 0;
-  session->capacity = printctx.size;
-  HTTP_FLAG_SET(session->flags, HTTP_RESPONSE_READY);
-  if (HTTP_FLAG_CHECK(session->flags, HTTP_RESPONSE_PAUSED)) {
-    HTTP_FLAG_CLEAR(session->flags, HTTP_RESPONSE_PAUSED);
-    http_session(session);
+  request->buf = printctx->buf;
+  request->bytes = 0;
+  request->capacity = printctx->size;
+  HTTP_FLAG_SET(request->flags, HTTP_RESPONSE_READY);
+  if (HTTP_FLAG_CHECK(request->flags, HTTP_RESPONSE_PAUSED)) {
+    HTTP_FLAG_CLEAR(request->flags, HTTP_RESPONSE_PAUSED);
+    http_session(request);
   }
+}
+
+void http_respond(http_request_t* request, http_response_t* response) {
+  grwprintf_t printctx;
+  grwprintf_init(&printctx, RESPONSE_BUF_SIZE);
+  http_respond_headers(request, response, &printctx);
+  if (response->body) {
+    grwmemcpy(&printctx, response->body, response->content_length);
+  }
+  http_end_response(request, response, &printctx);
+}
+
+void http_respond_chunk(
+  http_request_t* request,
+  http_response_t* response,
+  void (*cb)(http_request_t*)
+) {
+  grwprintf_t printctx;
+  grwprintf_init(&printctx, RESPONSE_BUF_SIZE);
+  if (!HTTP_FLAG_CHECK(request->flags, HTTP_CHUNKED)) {
+    HTTP_FLAG_SET(request->flags, HTTP_CHUNKED);
+    http_response_header(response, "Transfer-Encoding", "chunked");
+    http_respond_headers(request, response, &printctx);
+  }
+  request->chunk_cb = cb;
+  grwprintf(&printctx, "%X\r\n", response->content_length);
+  grwmemcpy(&printctx, response->body, response->content_length);
+  grwprintf(&printctx, "\r\n");
+  http_end_response(request, response, &printctx);
+}
+
+void http_respond_chunk_end(http_request_t* request, http_response_t* response) {
+  grwprintf_t printctx;
+  HTTP_FLAG_CLEAR(request->flags, HTTP_CHUNKED);
+  grwprintf_init(&printctx, RESPONSE_BUF_SIZE);
+  grwprintf(&printctx, "0\r\n", response->content_length);
+  http_buffer_headers(request, response, &printctx);
+  grwprintf(&printctx, "\r\n");
+  http_end_response(request, response, &printctx);
 }
 
 #endif
