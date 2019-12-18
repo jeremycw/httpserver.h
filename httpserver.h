@@ -45,6 +45,26 @@
 *   #define HTTPSERVER_IMPL
 *   #include "httpserver.h"
 *
+*   There are some #defines that can be configured. This must be done in the
+*   same file that you define HTTPSERVER_IMPL These defines have default values
+*   and will need to be #undef'd and redefined to configure them.
+*
+*     HTTP_REQUEST_BUF_SIZE - default 1024 - The initial size in bytes of the
+*       read buffer for the request. This buffer grows automatically if it's
+*       capacity is reached but it certain environments it may be optimal to
+*       change this value.
+*
+*     HTTP_RESPONSE_BUF_SIZE - default 512 - Same as above except for the
+*       response buffer.
+*
+*     HTTP_REQUEST_TIMEOUT - default 20 - The amount of seconds the request will
+*       wait for activity on the socket before closing. This only applies mid
+*       request. For the amount of time to hold onto keep-alive connections see
+*       below.
+*
+*     HTTP_KEEP_ALIVE_TIMEOUT - default 120 - The amount of seconds to keep a
+*       connection alive a keep-alive request has completed.
+*
 *   For more details see the documentation of the interface and the example
 *   below.
 *
@@ -447,6 +467,9 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n) {
 #define HTTP_FLAG_CLEAR(var, flag) var &= ~flag
 #define HTTP_FLAG_CHECK(var, flag) (var & flag)
 
+#define HTTP_REQUEST_TIMEOUT 20
+#define HTTP_KEEP_ALIVE_TIMEOUT 120
+
 typedef struct {
   http_token_t* buf;
   int capacity;
@@ -516,7 +539,7 @@ void http_token_dyn_init(http_token_dyn_t* dyn, int capacity) {
   dyn->capacity = capacity;
 }
 
-#define BUF_SIZE 1024
+#define HTTP_REQUEST_BUF_SIZE 1024
 
 void bind_localhost(int s, struct sockaddr_in* addr, int port) {
   addr->sin_family = AF_INET;
@@ -530,8 +553,8 @@ void bind_localhost(int s, struct sockaddr_in* addr, int port) {
 
 int read_client_socket(http_request_t* session) {
   if (!session->buf) {
-    session->buf = calloc(1, BUF_SIZE);
-    session->capacity = BUF_SIZE;
+    session->buf = calloc(1, HTTP_REQUEST_BUF_SIZE);
+    session->capacity = HTTP_REQUEST_BUF_SIZE;
     http_token_dyn_init(&session->tokens, 32);
   }
   int bytes;
@@ -645,17 +668,17 @@ void write_response(http_request_t* request) {
 #endif
 
     request->state = HTTP_SESSION_WRITE;
-    reset_timeout(request, 20);
+    reset_timeout(request, HTTP_REQUEST_TIMEOUT);
   } else if (HTTP_FLAG_CHECK(request->flags, HTTP_CHUNKED)) {
     request->state = HTTP_SESSION_WRITE;
-    reset_timeout(request, 20);
+    reset_timeout(request, HTTP_REQUEST_TIMEOUT);
     free_buffer(request);
     HTTP_FLAG_CLEAR(request->flags, HTTP_RESPONSE_READY);
     exec_response_handler(request, request->chunk_cb);
   } else if (HTTP_FLAG_CHECK(request->flags, HTTP_KEEP_ALIVE)) {
     request->state = HTTP_SESSION_INIT;
     free_buffer(request);
-    reset_timeout(request, 120);
+    reset_timeout(request, HTTP_KEEP_ALIVE_TIMEOUT);
   } else {
     return end_session(request);
   }
@@ -696,7 +719,7 @@ void http_session(http_request_t* request) {
       } else if (!parsing_headers(request)) {
         return exec_response_handler(request, request->server->request_handler);
       }
-      reset_timeout(request, 20);
+      reset_timeout(request, HTTP_REQUEST_TIMEOUT);
       break;
     case HTTP_SESSION_READ_BODY:
       if (!read_client_socket(request)) { return end_session(request); }
@@ -1075,7 +1098,7 @@ typedef struct http_response_s {
   int status;
 } http_response_t;
 
-#define RESPONSE_BUF_SIZE 512
+#define HTTP_RESPONSE_BUF_SIZE 512
 
 char const * status_text[] = {
   "", "", "", "", "", "", "", "", "", "",
@@ -1277,7 +1300,7 @@ void http_end_response(http_request_t* request, http_response_t* response, grwpr
 
 void http_respond(http_request_t* request, http_response_t* response) {
   grwprintf_t printctx;
-  grwprintf_init(&printctx, RESPONSE_BUF_SIZE);
+  grwprintf_init(&printctx, HTTP_RESPONSE_BUF_SIZE);
   http_respond_headers(request, response, &printctx);
   if (response->body) {
     grwmemcpy(&printctx, response->body, response->content_length);
@@ -1291,7 +1314,7 @@ void http_respond_chunk(
   void (*cb)(http_request_t*)
 ) {
   grwprintf_t printctx;
-  grwprintf_init(&printctx, RESPONSE_BUF_SIZE);
+  grwprintf_init(&printctx, HTTP_RESPONSE_BUF_SIZE);
   if (!HTTP_FLAG_CHECK(request->flags, HTTP_CHUNKED)) {
     HTTP_FLAG_SET(request->flags, HTTP_CHUNKED);
     http_response_header(response, "Transfer-Encoding", "chunked");
@@ -1306,7 +1329,7 @@ void http_respond_chunk(
 
 void http_respond_chunk_end(http_request_t* request, http_response_t* response) {
   grwprintf_t printctx;
-  grwprintf_init(&printctx, RESPONSE_BUF_SIZE);
+  grwprintf_init(&printctx, HTTP_RESPONSE_BUF_SIZE);
   grwprintf(&printctx, "0\r\n");
   http_buffer_headers(request, response, &printctx);
   grwprintf(&printctx, "\r\n");
