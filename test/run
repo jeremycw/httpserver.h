@@ -16,6 +16,12 @@ echo "\n\nChunked Response keep-alive:"
 curl http://localhost:8080/chunked http://localhost:8080/chunked
 echo "\n\nChunked Response close:"
 curl -H'Connection: close' http://localhost:8080/chunked http://localhost:8080/chunked
+echo "\n\nPoll Server:"
+curl http://localhost:8081/ &
+sleep 1
+curl http://localhost:8080/poll
+sleep 1
+curl http://localhost:8080/poll
 echo "\n\nIterate Headers:"
 curl -H'User-Agent: test-ua' -H'Foo-Header: foo-bar' http://localhost:8080/headers
 echo "\nStress Test keep-alive:"

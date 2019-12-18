@@ -24,6 +24,8 @@ void chunk_cb(struct http_request_s* request) {
   }
 }
 
+struct http_server_s* poll_server;
+
 void handle_request(struct http_request_s* request) {
   chunk_count = 0;
   http_request_connection(request, HTTP_AUTOMATIC);
@@ -37,6 +39,10 @@ void handle_request(struct http_request_s* request) {
     http_string_t ua = http_request_header(request, "Host");
     http_response_header(response, "Content-Type", "text/plain");
     http_response_body(response, ua.buf, ua.len);
+  } else if (request_target_is(request, "/poll")) {
+    while (http_server_poll(poll_server) > 0);
+    http_response_header(response, "Content-Type", "text/plain");
+    http_response_body(response, RESPONSE, sizeof(RESPONSE) - 1);
   } else if (request_target_is(request, "/empty")) {
     // No Body
   } else if (request_target_is(request, "/chunked")) {
@@ -65,11 +71,14 @@ struct http_server_s* server;
 void handle_sigterm(int signum) {
   (void)signum;
   free(server);
+  free(poll_server);
   exit(0);
 }
 
 int main() {
   signal(SIGTERM, handle_sigterm);
   server = http_server_init(8080, handle_request);
+  poll_server = http_server_init(8081, handle_request);
+  http_server_listen_poll(poll_server);
   http_server_listen(server);
 }

@@ -24,7 +24,7 @@
 *
 * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
 *
-* httpserver.h (0.4.1)
+* httpserver.h (0.5.0)
 *
 * Description:
 *
@@ -101,6 +101,18 @@ struct http_server_s* http_server_init(int port, void (*handler)(struct http_req
 // function will not return. Return value is the error code if the server fails
 // to start.
 int http_server_listen(struct http_server_s* server);
+
+// Use this listen call in place of the one above when you want to integrate
+// an http server into an existing application that has a loop already and you
+// want to use the polling functionality instead. This works well for
+// applications like games that have a constant update loop.
+int http_server_listen_poll(struct http_server_s* server);
+
+// Call this function in your update loop. It will trigger the request handler
+// once if there is a request ready. Returns 1 if a request was handled and 0
+// if no requests were handled. It should be called in a loop until it returns
+// 0.
+int http_server_poll(struct http_server_s* server);
 
 // Returns the request method as it was read from the HTTP request line.
 struct http_string_s http_request_method(struct http_request_s* request);
@@ -516,17 +528,6 @@ void bind_localhost(int s, struct sockaddr_in* addr, int port) {
   }
 }
 
-void http_listen(http_server_t* serv) {
-  serv->socket = socket(AF_INET, SOCK_STREAM, 0);
-  int flag = 1;
-  setsockopt(serv->socket, SOL_SOCKET, SO_REUSEPORT, &flag, sizeof(flag));
-  bind_localhost(serv->socket, &serv->addr, serv->port);
-  serv->len = sizeof(serv->addr);
-  int flags = fcntl(serv->socket, F_GETFL, 0);
-  fcntl(serv->socket, F_SETFL, flags | O_NONBLOCK);
-  listen(serv->socket, 128);
-}
-
 int read_client_socket(http_request_t* session) {
   if (!session->buf) {
     session->buf = calloc(1, BUF_SIZE);
@@ -838,15 +839,56 @@ http_server_t* http_server_init(int port, void (*handler)(http_request_t*)) {
   return serv;
 }
 
-int http_server_listen(http_server_t* serv) {
+void http_listen(http_server_t* serv) {
   signal(SIGPIPE, SIG_IGN);
-  http_listen(serv);
+  serv->socket = socket(AF_INET, SOCK_STREAM, 0);
+  int flag = 1;
+  setsockopt(serv->socket, SOL_SOCKET, SO_REUSEPORT, &flag, sizeof(flag));
+  bind_localhost(serv->socket, &serv->addr, serv->port);
+  serv->len = sizeof(serv->addr);
+  int flags = fcntl(serv->socket, F_GETFL, 0);
+  fcntl(serv->socket, F_SETFL, flags | O_NONBLOCK);
+  listen(serv->socket, 128);
 
 #ifdef KQUEUE
   struct kevent ev_set;
   EV_SET(&ev_set, serv->socket, EVFILT_READ, EV_ADD, 0, 0, serv);
   kevent(serv->loop, &ev_set, 1, NULL, 0, NULL);
+#else
+  struct epoll_event ev;
+  ev.events = EPOLLIN | EPOLLET;
+  ev.data.ptr = serv;
+  epoll_ctl(serv->loop, EPOLL_CTL_ADD, serv->socket, &ev);
+#endif
+}
 
+int http_server_listen_poll(http_server_t* serv) {
+  http_listen(serv);
+  return 0;
+}
+
+int http_server_poll(http_server_t* serv) {
+#ifdef KQUEUE
+  struct kevent ev;
+  struct timespec ts;
+  memset(&ts, 0, sizeof(ts));
+  int nev = kevent(serv->loop, NULL, 0, &ev, 1, &ts);
+  if (nev <= 0) return nev;
+  ev_cb_t* ev_cb = (ev_cb_t*)ev.udata;
+#else
+  struct epoll_event ev;
+  int nev = epoll_wait(serv->loop, &ev, 1, 0);
+  if (nev <= 0) return nev;
+  ev_cb_t* ev_cb = (ev_cb_t*)ev.data.ptr;
+#endif
+  ev_cb->handler(&ev);
+  return nev;
+}
+
+int http_server_listen(http_server_t* serv) {
+  http_listen(serv);
+
+#ifdef KQUEUE
   struct kevent ev_list[1];
 
   while (1) {
@@ -857,10 +899,7 @@ int http_server_listen(http_server_t* serv) {
     }
   }
 #else
-  struct epoll_event ev, ev_list[1];
-  ev.events = EPOLLIN | EPOLLET;
-  ev.data.ptr = serv;
-  epoll_ctl(serv->loop, EPOLL_CTL_ADD, serv->socket, &ev);
+  struct epoll_event ev_list[1];
 
   while (1) {
     int nev = epoll_wait(serv->loop, ev_list, 1, -1);

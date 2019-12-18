@@ -22,6 +22,9 @@ Hello, World!Hello, World!Hello, World!Hello, World!Hello, World!Hello, World!
 Chunked Response close:
 Hello, World!Hello, World!Hello, World!Hello, World!Hello, World!Hello, World!
 
+Poll Server:
+Hello, World!Hello, World!Hello, World!
+
 Iterate Headers:
 Host: localhost:8080
 Accept: */*
