@@ -16,6 +16,12 @@ localhost:8080
 Chunked Response:
 Hello, World!Hello, World!Hello, World!
 
+Chunked Response keep-alive:
+Hello, World!Hello, World!Hello, World!Hello, World!Hello, World!Hello, World!
+
+Chunked Response close:
+Hello, World!Hello, World!Hello, World!Hello, World!Hello, World!Hello, World!
+
 Iterate Headers:
 Host: localhost:8080
 Accept: */*
