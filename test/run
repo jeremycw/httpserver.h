@@ -10,6 +10,8 @@ echo "\n\nEcho Body:"
 curl -XPOST http://localhost:8080/echo -d'Echo test'
 echo "\n\nGet Header:"
 curl http://localhost:8080/host
+echo "\n\nChunked Response:"
+curl http://localhost:8080/chunked
 echo "\n\nIterate Headers:"
 curl -H'User-Agent: test-ua' -H'Foo-Header: foo-bar' http://localhost:8080/headers
 echo "\nStress Test keep-alive:"

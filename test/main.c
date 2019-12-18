@@ -10,7 +10,22 @@ int request_target_is(struct http_request_s* request, char const * target) {
   return len == url.len && memcmp(url.buf, target, url.len) == 0;
 }
 
+int chunk_count = 0;
+
+void chunk_cb(struct http_request_s* request) {
+  chunk_count++;
+  struct http_response_s* response = http_response_init();
+  http_response_body(response, RESPONSE, sizeof(RESPONSE) - 1);
+  if (chunk_count < 3) {
+    http_respond_chunk(request, response, chunk_cb);
+  } else {
+    http_response_header(response, "Foo-Header", "bar");
+    http_respond_chunk_end(request, response);
+  }
+}
+
 void handle_request(struct http_request_s* request) {
+  chunk_count = 0;
   http_request_connection(request, HTTP_AUTOMATIC);
   struct http_response_s* response = http_response_init();
   http_response_status(response, 200);
@@ -24,6 +39,11 @@ void handle_request(struct http_request_s* request) {
     http_response_body(response, ua.buf, ua.len);
   } else if (request_target_is(request, "/empty")) {
     // No Body
+  } else if (request_target_is(request, "/chunked")) {
+    http_response_header(response, "Content-Type", "text/plain");
+    http_response_body(response, RESPONSE, sizeof(RESPONSE) - 1);
+    http_respond_chunk(request, response, chunk_cb);
+    return;
   } else if (request_target_is(request, "/headers")) {
     int iter = 0, i = 0;
     http_string_t key, val;

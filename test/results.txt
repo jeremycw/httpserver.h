@@ -13,6 +13,9 @@ Echo test
 Get Header:
 localhost:8080
 
+Chunked Response:
+Hello, World!Hello, World!Hello, World!
+
 Iterate Headers:
 Host: localhost:8080
 Accept: */*
