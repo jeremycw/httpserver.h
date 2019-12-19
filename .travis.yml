@@ -5,8 +5,7 @@ os:
 language: c
 script:
   - make test
-  - make clean
-  - make CC=g++ CFLAGS=-std=c++98 test
+  - make test-cpp
   - make clean
   - if [ "$TRAVIS_OS_NAME" = "linux" ]; then make CFLAGS=-g valgrind; fi
 addons:
