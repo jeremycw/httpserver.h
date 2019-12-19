@@ -271,6 +271,7 @@ int main() {
 #include <stdarg.h>
 #include <signal.h>
 #include <limits.h>
+#include <assert.h>
 
 #ifdef KQUEUE
 #include <sys/event.h>
@@ -528,6 +529,7 @@ void http_token_dyn_push(http_token_dyn_t* dyn, http_token_t a) {
   if (dyn->size == dyn->capacity) {
     dyn->capacity *= 2;
     dyn->buf = realloc(dyn->buf, dyn->capacity * sizeof(http_token_t));
+    assert(dyn->buf != NULL);
   }
   dyn->buf[dyn->size] = a;
   dyn->size++;
@@ -535,6 +537,7 @@ void http_token_dyn_push(http_token_dyn_t* dyn, http_token_t a) {
 
 void http_token_dyn_init(http_token_dyn_t* dyn, int capacity) {
   dyn->buf = malloc(sizeof(http_token_t) * capacity);
+  assert(dyn->buf != NULL);
   dyn->size = 0;
   dyn->capacity = capacity;
 }
@@ -554,6 +557,7 @@ void bind_localhost(int s, struct sockaddr_in* addr, int port) {
 int read_client_socket(http_request_t* session) {
   if (!session->buf) {
     session->buf = calloc(1, HTTP_REQUEST_BUF_SIZE);
+    assert(session->buf != NULL);
     session->capacity = HTTP_REQUEST_BUF_SIZE;
     http_token_dyn_init(&session->tokens, 32);
   }
@@ -571,6 +575,7 @@ int read_client_socket(http_request_t* session) {
     if (session->bytes == session->capacity) {
       session->capacity *= 2;
       session->buf = realloc(session->buf, session->capacity);
+      assert(session->buf != NULL);
     }
   } while (bytes > 0);
   return bytes == 0 ? 0 : 1;
@@ -740,6 +745,7 @@ void accept_connections(http_server_t* server) {
     sock = accept(server->socket, (struct sockaddr *)&server->addr, &server->len);
     if (sock > 0) {
       http_request_t* session = malloc(sizeof(http_request_t));
+      assert(session != NULL);
       *session = (http_request_t) { .socket = sock, .server = server, .timeout = 20 };
       session->handler = http_session_io_cb;
       int flags = fcntl(sock, F_GETFL, 0);
@@ -831,6 +837,7 @@ void http_request_timer_cb(struct epoll_event* ev) {
 
 http_server_t* http_server_init(int port, void (*handler)(http_request_t*)) {
   http_server_t* serv = malloc(sizeof(http_server_t));
+  assert(serv != NULL);
   serv->port = port;
   serv->handler = http_server_listen_cb;
 
@@ -1185,12 +1192,14 @@ char const * status_text[] = {
 
 http_response_t* http_response_init() {
   http_response_t* response = malloc(sizeof(http_response_t));
+  assert(response != NULL);
   *response = (http_response_t){ .status = 200 };
   return response;
 }
 
 void http_response_header(http_response_t* response, char const * key, char const * value) {
   http_header_t* header = malloc(sizeof(http_header_t));
+  assert(header != NULL);
   header->key = key;
   header->value = value;
   http_header_t* prev = response->headers;
@@ -1216,6 +1225,7 @@ typedef struct {
 void grwprintf_init(grwprintf_t* ctx, int capacity) {
   ctx->size = 0;
   ctx->buf = malloc(capacity);
+  assert(ctx->buf != NULL);
   ctx->capacity = capacity;
 }
 
@@ -1223,6 +1233,7 @@ void grwmemcpy(grwprintf_t* ctx, char const * src, int size) {
   if (ctx->size + size > ctx->capacity) {
     ctx->capacity = ctx->size + size;
     ctx->buf = realloc(ctx->buf, ctx->capacity);
+    assert(ctx->buf != NULL);
   }
   memcpy(ctx->buf + ctx->size, src, size);
   ctx->size += size;
@@ -1236,6 +1247,7 @@ void grwprintf(grwprintf_t* ctx, char const * fmt, ...) {
   if (bytes + ctx->size > ctx->capacity) {
     while (bytes + ctx->size > ctx->capacity) ctx->capacity *= 2;
     ctx->buf = realloc(ctx->buf, ctx->capacity);
+    assert(ctx->buf != NULL);
     bytes += vsnprintf(ctx->buf + ctx->size, ctx->capacity - ctx->size, fmt, args);
   }
   ctx->size += bytes;
