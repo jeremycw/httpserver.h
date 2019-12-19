@@ -5,7 +5,9 @@ os:
 language: c
 script:
   - make test
-  - if [ "$TRAVIS_OS_NAME" = "linux" ]; then make valgrind; fi
+  - make test-cpp
+  - make clean
+  - if [ "$TRAVIS_OS_NAME" = "linux" ]; then make CFLAGS=-g valgrind; fi
 addons:
   apt:
     packages:

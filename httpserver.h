@@ -256,6 +256,7 @@ int main() {
 
 #ifdef __linux__
 #define EPOLL
+#define _POSIX_C_SOURCE 199309L
 #else
 #define KQUEUE
 #endif
@@ -338,11 +339,10 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n) {
     switch (parser->state) {
       case HTTP_METHOD:
         if (c == ' ') {
-          http_token_t token = {
-            .index = parser->token_start_index,
-            .type = parser->state,
-            .len = parser->len
-          };
+          http_token_t token;
+          token.index = parser->token_start_index;
+          token.type = parser->state;
+          token.len = parser->len;
           parser->state = HTTP_TARGET;
           parser->len = 0;
           parser->token_start_index = i + 1;
@@ -351,11 +351,10 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n) {
         break;
       case HTTP_TARGET:
         if (c == ' ') {
-          http_token_t token = {
-            .index = parser->token_start_index,
-            .type = parser->state,
-            .len = parser->len
-          };
+          http_token_t token;
+          token.index = parser->token_start_index;
+          token.type = parser->state;
+          token.len = parser->len;
           parser->state = HTTP_VERSION;
           parser->token_start_index = i + 1;
           parser->len = 0;
@@ -365,11 +364,11 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n) {
       case HTTP_VERSION:
         if (c == '\r') {
           parser->sub_state = HTTP_CR;
-          return (http_token_t) {
-            .index = parser->token_start_index,
-            .type = HTTP_VERSION,
-            .len = parser->len 
-          };
+          http_token_t token;
+          token.index = parser->token_start_index;
+          token.type = HTTP_VERSION;
+          token.len = parser->len;
+          return token;
         } else if (parser->sub_state == HTTP_CR && c == '\n') {
           parser->sub_state = 0;
           parser->len = 0;
@@ -383,11 +382,11 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n) {
           parser->sub_state = HTTP_LWS;
           if (parser->len == parser->content_length_i + 1) parser->in_content_length = 1;
           parser->content_length_i = 0;
-          return (http_token_t) {
-            .index = parser->token_start_index,
-            .type = HTTP_HEADER_KEY,
-            .len = parser->len - 1
-          };
+          http_token_t token;
+          token.index = parser->token_start_index;
+          token.type = HTTP_HEADER_KEY;
+          token.len = parser->len - 1;
+          return token;
         } else if (
           (c == CONTENT_LENGTH_UP[parser->content_length_i] ||
             c == CONTENT_LENGTH_LOW[parser->content_length_i]) &&
@@ -411,11 +410,11 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n) {
           parser->sub_state = HTTP_CR;
           parser->state = HTTP_HEADER_END;
           parser->in_content_length = 0;
-          return (http_token_t) {
-            .index = parser->token_start_index,
-            .type = HTTP_HEADER_VALUE,
-            .len = parser->len
-          };
+          http_token_t token;
+          token.index = parser->token_start_index;
+          token.type = HTTP_HEADER_VALUE;
+          token.len = parser->len;
+          return token;
         } else if (parser->in_content_length && parser->content_length != PAYLOAD_TOO_LARGE) {
           int64_t new_content_length = parser->content_length * 10l;
           new_content_length += c - '0';
@@ -434,11 +433,11 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n) {
         } else if (parser->sub_state == HTTP_CRLF && c == '\r') {
           parser->sub_state = 0;
           parser->state = HTTP_BODY;
-          return (http_token_t) {
-            .index = i + 2,
-            .type = HTTP_BODY,
-            .len = parser->content_length
-          };
+          http_token_t token;
+          token.index = i + 2;
+          token.type = HTTP_BODY;
+          token.len = parser->content_length;
+          return token;
         } else if (parser->sub_state == HTTP_CRLF && c != '\r') {
           parser->sub_state = 0;
           parser->len = 0;
@@ -449,7 +448,9 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n) {
         break;
     }
   }
-  return (http_token_t) { .index = 0, .type = HTTP_NONE, .len = 0 };
+  http_token_t token = { 0, 0, 0 };
+  token.type = HTTP_NONE;
+  return token;
 }
 
 /******************************************************************************
@@ -528,7 +529,7 @@ typedef struct http_server_s {
 void http_token_dyn_push(http_token_dyn_t* dyn, http_token_t a) {
   if (dyn->size == dyn->capacity) {
     dyn->capacity *= 2;
-    dyn->buf = realloc(dyn->buf, dyn->capacity * sizeof(http_token_t));
+    dyn->buf = (http_token_t*)realloc(dyn->buf, dyn->capacity * sizeof(http_token_t));
     assert(dyn->buf != NULL);
   }
   dyn->buf[dyn->size] = a;
@@ -536,7 +537,7 @@ void http_token_dyn_push(http_token_dyn_t* dyn, http_token_t a) {
 }
 
 void http_token_dyn_init(http_token_dyn_t* dyn, int capacity) {
-  dyn->buf = malloc(sizeof(http_token_t) * capacity);
+  dyn->buf = (http_token_t*)malloc(sizeof(http_token_t) * capacity);
   assert(dyn->buf != NULL);
   dyn->size = 0;
   dyn->capacity = capacity;
@@ -556,7 +557,7 @@ void bind_localhost(int s, struct sockaddr_in* addr, int port) {
 
 int read_client_socket(http_request_t* session) {
   if (!session->buf) {
-    session->buf = calloc(1, HTTP_REQUEST_BUF_SIZE);
+    session->buf = (char*)calloc(1, HTTP_REQUEST_BUF_SIZE);
     assert(session->buf != NULL);
     session->capacity = HTTP_REQUEST_BUF_SIZE;
     http_token_dyn_init(&session->tokens, 32);
@@ -574,7 +575,7 @@ int read_client_socket(http_request_t* session) {
     }
     if (session->bytes == session->capacity) {
       session->capacity *= 2;
-      session->buf = realloc(session->buf, session->capacity);
+      session->buf = (char*)realloc(session->buf, session->capacity);
       assert(session->buf != NULL);
     }
   } while (bytes > 0);
@@ -617,7 +618,9 @@ void init_session(http_request_t* session) {
   session->parser = (http_parser_t){ };
   session->bytes = 0;
   session->buf = NULL;
-  session->token = (http_token_t){ .type = HTTP_NONE };
+  session->token.len = 0;
+  session->token.index = 0;
+  session->token.type = HTTP_NONE;
 }
 
 int parsing_headers(http_request_t* request) {
@@ -744,9 +747,11 @@ void accept_connections(http_server_t* server) {
   do {
     sock = accept(server->socket, (struct sockaddr *)&server->addr, &server->len);
     if (sock > 0) {
-      http_request_t* session = malloc(sizeof(http_request_t));
+      http_request_t* session = (http_request_t*)calloc(1, sizeof(http_request_t));
       assert(session != NULL);
-      *session = (http_request_t) { .socket = sock, .server = server, .timeout = 20 };
+      session->socket = sock;
+      session->server = server;
+      session->timeout = HTTP_REQUEST_TIMEOUT;
       session->handler = http_session_io_cb;
       int flags = fcntl(sock, F_GETFL, 0);
       fcntl(sock, F_SETFL, flags | O_NONBLOCK);
@@ -818,7 +823,7 @@ void http_session_io_cb(struct epoll_event* ev) {
 }
 
 void http_server_timer_cb(struct epoll_event* ev) {
-  http_server_t* server = (http_server_t*)(ev->data.ptr - sizeof(epoll_cb_t));
+  http_server_t* server = (http_server_t*)((char*)ev->data.ptr - sizeof(epoll_cb_t));
   uint64_t res;
   int bytes = read(server->timerfd, &res, sizeof(res));
   (void)bytes; // suppress warning
@@ -826,7 +831,7 @@ void http_server_timer_cb(struct epoll_event* ev) {
 }
 
 void http_request_timer_cb(struct epoll_event* ev) {
-  http_request_t* request = (http_request_t*)(ev->data.ptr - sizeof(epoll_cb_t));
+  http_request_t* request = (http_request_t*)((char*)ev->data.ptr - sizeof(epoll_cb_t));
   uint64_t res;
   int bytes = read(request->timerfd, &res, sizeof(res));
   (void)bytes; // suppress warning
@@ -836,7 +841,7 @@ void http_request_timer_cb(struct epoll_event* ev) {
 #endif
 
 http_server_t* http_server_init(int port, void (*handler)(http_request_t*)) {
-  http_server_t* serv = malloc(sizeof(http_server_t));
+  http_server_t* serv = (http_server_t*)malloc(sizeof(http_server_t));
   assert(serv != NULL);
   serv->port = port;
   serv->handler = http_server_listen_cb;
@@ -956,16 +961,16 @@ int http_server_loop(http_server_t* server) {
 typedef struct http_string_s http_string_t;
 
 http_string_t http_get_token_string(http_request_t* request, int token_type) {
+  http_string_t str = { 0, 0 };
   for (int i = 0; i < request->tokens.size; i++) {
     http_token_t token = request->tokens.buf[i];
     if (token.type == token_type) {
-      return (http_string_t) {
-        .buf = &request->buf[token.index],
-        .len = token.len
-      };
+      str.buf = &request->buf[token.index];
+      str.len = token.len;
+      return str;
     }
   }
-  return (http_string_t) { };
+  return str;
 }
 
 int case_insensitive_cmp(char const * a, char const * b, int len) {
@@ -1191,14 +1196,14 @@ char const * status_text[] = {
 };
 
 http_response_t* http_response_init() {
-  http_response_t* response = malloc(sizeof(http_response_t));
+  http_response_t* response = (http_response_t*)calloc(1, sizeof(http_response_t));
   assert(response != NULL);
-  *response = (http_response_t){ .status = 200 };
+  response->status = 200;
   return response;
 }
 
 void http_response_header(http_response_t* response, char const * key, char const * value) {
-  http_header_t* header = malloc(sizeof(http_header_t));
+  http_header_t* header = (http_header_t*)malloc(sizeof(http_header_t));
   assert(header != NULL);
   header->key = key;
   header->value = value;
@@ -1224,7 +1229,7 @@ typedef struct {
 
 void grwprintf_init(grwprintf_t* ctx, int capacity) {
   ctx->size = 0;
-  ctx->buf = malloc(capacity);
+  ctx->buf = (char*)malloc(capacity);
   assert(ctx->buf != NULL);
   ctx->capacity = capacity;
 }
@@ -1232,7 +1237,7 @@ void grwprintf_init(grwprintf_t* ctx, int capacity) {
 void grwmemcpy(grwprintf_t* ctx, char const * src, int size) {
   if (ctx->size + size > ctx->capacity) {
     ctx->capacity = ctx->size + size;
-    ctx->buf = realloc(ctx->buf, ctx->capacity);
+    ctx->buf = (char*)realloc(ctx->buf, ctx->capacity);
     assert(ctx->buf != NULL);
   }
   memcpy(ctx->buf + ctx->size, src, size);
@@ -1246,7 +1251,7 @@ void grwprintf(grwprintf_t* ctx, char const * fmt, ...) {
   int bytes = vsnprintf(ctx->buf + ctx->size, ctx->capacity - ctx->size, fmt, args);
   if (bytes + ctx->size > ctx->capacity) {
     while (bytes + ctx->size > ctx->capacity) ctx->capacity *= 2;
-    ctx->buf = realloc(ctx->buf, ctx->capacity);
+    ctx->buf = (char*)realloc(ctx->buf, ctx->capacity);
     assert(ctx->buf != NULL);
     bytes += vsnprintf(ctx->buf + ctx->size, ctx->capacity - ctx->size, fmt, args);
   }
