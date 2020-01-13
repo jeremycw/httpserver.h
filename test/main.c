@@ -24,6 +24,20 @@ void chunk_cb(struct http_request_s* request) {
   }
 }
 
+void chunk_req_cb(struct http_request_s* request) {
+  http_string_t str = http_request_chunk(request);
+  if (str.len > 0) {
+    //printf("CHUNK LENGTH: %d\n", str.len);
+    printf("%.*s\n", str.len, str.buf);
+    http_request_read_chunk(request, chunk_req_cb);
+  } else {
+    struct http_response_s* response = http_response_init();
+    http_response_body(response, RESPONSE, sizeof(RESPONSE) - 1);
+    //printf("responding!\n");
+    http_respond(request, response);
+  }
+}
+
 struct http_server_s* poll_server;
 
 void handle_request(struct http_request_s* request) {
@@ -49,6 +63,9 @@ void handle_request(struct http_request_s* request) {
     http_response_header(response, "Content-Type", "text/plain");
     http_response_body(response, RESPONSE, sizeof(RESPONSE) - 1);
     http_respond_chunk(request, response, chunk_cb);
+    return;
+  } else if (request_target_is(request, "/chunked-req")) {
+    http_request_read_chunk(request, chunk_req_cb);
     return;
   } else if (request_target_is(request, "/headers")) {
     int iter = 0, i = 0;

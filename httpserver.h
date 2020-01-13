@@ -224,6 +224,13 @@ void http_respond_chunk(
 // response headers.
 void http_respond_chunk_end(struct http_request_s* request, struct http_response_s* response);
 
+void http_request_read_chunk(
+  struct http_request_s* request,
+  void (*chunk_cb)(struct http_request_s*)
+);
+
+struct http_string_s http_request_chunk(struct http_request_s* request);
+
 #ifdef __cplusplus
 }
 #endif
@@ -350,6 +357,10 @@ typedef struct {
 
 #define HTTP_CHUNKED_LEN -1
 
+#define HTTP_FLAG_SET(var, flag) var |= flag
+#define HTTP_FLAG_CLEAR(var, flag) var &= ~flag
+#define HTTP_FLAG_CHECK(var, flag) (var & flag)
+
 #define HS_P_MATCH_HEADER(up, low, i) \
   if ((c == up[(int)i] || c == low[(int)i]) && i < (char)(sizeof(up) - 1)) i++;
 
@@ -401,9 +412,9 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n) {
           parser->state = HTTP_HEADER_VALUE;
           parser->sub_state = HTTP_LWS;
           if (parser->len == parser->content_length_i + 1) {
-            parser->flags |= HS_PF_CONTENT_LENGTH;
+            HTTP_FLAG_SET(parser->flags, HS_PF_CONTENT_LENGTH);
           } else if (parser->len == parser->transfer_encoding_i + 1) {
-            parser->flags |= HS_PF_TRANSFER_ENCODING;
+            HTTP_FLAG_SET(parser->flags, HS_PF_TRANSFER_ENCODING);
           }
           parser->content_length_i = 0;
           parser->transfer_encoding_i = 0;
@@ -423,27 +434,28 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n) {
           parser->sub_state = 0;
           parser->len = 0;
           parser->token_start_index = i;
-          if (parser->flags & HS_PF_CONTENT_LENGTH) {
+          if (HTTP_FLAG_CHECK(parser->flags, HS_PF_CONTENT_LENGTH)) {
             parser->content_length *= 10;
             parser->content_length += c - '0';
-          } else if (parser->flags & HS_PF_TRANSFER_ENCODING) {
+          } else if (HTTP_FLAG_CHECK(parser->flags, HS_PF_TRANSFER_ENCODING)) {
             HS_P_MATCH_HEADER(CHUNKED_UP, CHUNKED_LOW, parser->transfer_encoding_i)
           }
         } else if (parser->sub_state != HTTP_LWS && c == '\r') {
           parser->sub_state = HTTP_CR;
           parser->state = HTTP_HEADER_END;
-          parser->flags = 0;
-          parser->transfer_encoding_i = 0;
-          if (parser->len == parser->transfer_encoding_i + 1) {
-            parser->flags |= HS_PF_CHUNKED;
+          HTTP_FLAG_CLEAR(parser->flags, HS_PF_TRANSFER_ENCODING);
+          HTTP_FLAG_CLEAR(parser->flags, HS_PF_CONTENT_LENGTH);
+          if (parser->len == parser->transfer_encoding_i) {
+            HTTP_FLAG_SET(parser->flags, HS_PF_CHUNKED);
           }
+          parser->transfer_encoding_i = 0;
           http_token_t token;
           token.index = parser->token_start_index;
           token.type = HTTP_HEADER_VALUE;
           token.len = parser->len;
           return token;
         } else if (
-          (parser->flags & HS_PF_CONTENT_LENGTH) &&
+          HTTP_FLAG_CHECK(parser->flags, HS_PF_CONTENT_LENGTH) &&
           parser->content_length != PAYLOAD_TOO_LARGE
         ) {
           int64_t new_content_length = parser->content_length * 10l;
@@ -453,7 +465,7 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n) {
           } else {
             parser->content_length = (int)new_content_length;
           }
-        } else if (parser->flags & HS_PF_TRANSFER_ENCODING) {
+        } else if (HTTP_FLAG_CHECK(parser->flags, HS_PF_TRANSFER_ENCODING)) {
           HS_P_MATCH_HEADER(CHUNKED_UP, CHUNKED_LOW, parser->transfer_encoding_i)
         }
         break;
@@ -468,7 +480,12 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n) {
           http_token_t token;
           token.index = i + 2;
           token.type = HTTP_BODY;
-          token.len = parser->flags & HS_PF_CHUNKED ? HTTP_CHUNKED_LEN : parser->content_length;
+          if (HTTP_FLAG_CHECK(parser->flags, HS_PF_CHUNKED)) {
+            token.len = HTTP_CHUNKED_LEN;
+          } else {
+            token.len = parser->content_length;
+          }
+          parser->start++;
           return token;
         } else if (parser->sub_state == HTTP_CRLF && c != '\r') {
           parser->sub_state = 0;
@@ -570,10 +587,6 @@ http_token_t http_chunk_parse(http_parser_t* parser, char const * input, int n) 
 #define HTTP_AUTOMATIC 0x8
 #define HTTP_RESPONSE_PAUSED 0x10
 #define HTTP_CHUNKED 0x20
-
-#define HTTP_FLAG_SET(var, flag) var |= flag
-#define HTTP_FLAG_CLEAR(var, flag) var &= ~flag
-#define HTTP_FLAG_CHECK(var, flag) (var & flag)
 
 #define HTTP_REQUEST_TIMEOUT 20
 #define HTTP_KEEP_ALIVE_TIMEOUT 120
@@ -706,13 +719,15 @@ void free_buffer(http_request_t* session) {
 
 void parse_tokens(http_request_t* session) {
   http_token_t token;
+  int chunk_start = 0;
   do {
     token = http_parse(&session->parser, session->buf, session->bytes);
     if (token.type != HTTP_NONE) {
       session->token = token;
       http_token_dyn_push(&session->tokens, token);
     }
-  } while (token.type != HTTP_NONE);
+    chunk_start = token.type == HTTP_BODY && token.len == HTTP_CHUNKED_LEN;
+  } while (token.type != HTTP_NONE && !chunk_start);
 }
 
 void init_session(http_request_t* session) {
@@ -742,6 +757,7 @@ int reading_body(http_request_t* request) {
 }
 
 void end_session(http_request_t* session) {
+  //printf("ending session\n");
 #ifdef KQUEUE
   struct kevent ev_set;
   EV_SET(&ev_set, session->socket, EVFILT_TIMER, EV_DELETE, 0, 0, session);
@@ -798,6 +814,7 @@ void write_response(http_request_t* request) {
     free_buffer(request);
     reset_timeout(request, HTTP_KEEP_ALIVE_TIMEOUT);
   } else {
+    //printf("connection: close\n");
     return end_session(request);
   }
 }
@@ -807,7 +824,7 @@ void exec_response_handler(http_request_t* request, void (*handler)(http_request
   if (HTTP_FLAG_CHECK(request->flags, HTTP_RESPONSE_READY)) {
     write_response(request);
   } else {
-    request->state = HTTP_SESSION_WRITE;
+    //printf("setting write state\n");
     HTTP_FLAG_SET(request->flags, HTTP_RESPONSE_PAUSED);
   }
 }
@@ -821,38 +838,50 @@ void error_response(http_request_t* request, int code, char const * message) {
   write_response(request);
 }
 
+void http_read_socket_chunk(http_request_t* request) {
+  if (!read_client_socket(request)) { return end_session(request); }
+  http_token_t token = http_chunk_parse(&request->parser, request->buf, request->bytes);
+  if (token.type == HTTP_CHUNK_BODY) {
+    request->token = token;
+    request->chunk_cb(request);
+  } else {
+    request->state = HTTP_SESSION_READ_CHUNK;
+  }
+}
+
 void http_request_read_chunk(
   struct http_request_s* request,
   void (*chunk_cb)(struct http_request_s*)
 ) {
+  //printf("read chunk\n");
   request->chunk_cb = chunk_cb;
   http_token_t token = http_chunk_parse(&request->parser, request->buf, request->bytes);
   http_token_t body;
   switch (token.type) {
-    case HTTP_CHUNK_BODY:
+    case HTTP_CHUNK_BODY: //Next chunk exists in read buffer
       request->token = token;
+      //printf("HTTP_CHUNK_BODY: calling chunk cb\n");
       chunk_cb(request);
       break;
-    case HTTP_CHUNK_BODY_PARTIAL:
+    case HTTP_CHUNK_BODY_PARTIAL: //Part of a chunk exists in read buffer
       body = request->tokens.buf[request->tokens.size - 1];
       memcpy(request->buf + body.index, request->buf + token.index, token.len);
       request->bytes = body.index + token.len;
       request->parser.start = request->bytes;
-      // fallthrough
-    case HTTP_NONE:
-      if (!read_client_socket(request)) { return end_session(request); }
-      token = http_chunk_parse(&request->parser, request->buf, request->bytes);
-      if (token.type == HTTP_CHUNK_BODY) {
-        request->token = token;
-        chunk_cb(request);
-      } else {
-        request->state = HTTP_SESSION_READ_CHUNK;
-      }
+      http_read_socket_chunk(request);
+      break;
+    case HTTP_NONE: //No buffered chunks, read again
+      body = request->tokens.buf[request->tokens.size - 1];
+      request->bytes = body.index;
+      request->parser.start = request->bytes;
+      http_read_socket_chunk(request);
       break;
   }
 }
 
 void http_session(http_request_t* request) {
+  //static char const * states[] = { "INIT", "READ_HEADERS", "READ_BODY", "WRITE", "READ_CHUNK", "NOP" };
+  //printf("%s\n", states[request->state]);
   switch (request->state) {
     case HTTP_SESSION_INIT:
       init_session(request);
@@ -884,10 +913,12 @@ void http_session(http_request_t* request) {
     case HTTP_SESSION_READ_CHUNK:
       if (!read_client_socket(request)) { return end_session(request); }
       http_token_t token = http_chunk_parse(&request->parser, request->buf, request->bytes);
+      //printf("token type in session: %d\n", token.type);
       if (token.type == HTTP_CHUNK_BODY) {
         request->token = token;
-        request->chunk_cb(request);
+        //printf("HTTP_SESSION_READ_CHUNK: calling chunk cb\n");
         request->state = HTTP_SESSION_NOP;
+        request->chunk_cb(request);
       }
       break;
     case HTTP_SESSION_WRITE:
@@ -1247,6 +1278,13 @@ void http_request_connection(http_request_t* request, int directive) {
   }
 }
 
+http_string_t http_request_chunk(struct http_request_s* request) {
+  return (http_string_t) {
+    .buf = &request->buf[request->token.index],
+    .len = request->token.len
+  };
+}
+
 /******************************************************************************
  *
  * HTTP Response
@@ -1464,6 +1502,7 @@ void http_end_response(http_request_t* request, http_response_t* response, grwpr
   request->buf = printctx->buf;
   request->bytes = 0;
   request->capacity = printctx->size;
+  request->state = HTTP_SESSION_WRITE;
   HTTP_FLAG_SET(request->flags, HTTP_RESPONSE_READY);
   if (HTTP_FLAG_CHECK(request->flags, HTTP_RESPONSE_PAUSED)) {
     HTTP_FLAG_CLEAR(request->flags, HTTP_RESPONSE_PAUSED);
