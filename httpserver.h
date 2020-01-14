@@ -24,7 +24,7 @@
 *
 * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
 *
-* httpserver.h (0.5.0)
+* httpserver.h (0.6.0)
 *
 * Description:
 *
@@ -224,11 +224,20 @@ void http_respond_chunk(
 // response headers.
 void http_respond_chunk_end(struct http_request_s* request, struct http_response_s* response);
 
+// If a request has Transfer-Encoding: chunked you cannot read the body in the
+// typical way. Instead you need to call this function to read one chunk at a
+// time. You pass a callback that will be called when the chunk is ready. When
+// the callback is called you can use `http_request_chunk` to get the current
+// chunk. When done with that chunk call this function again to request the
+// next chunk. If the chunk has size 0 then the request body has been completely
+// read and you can now respond.
 void http_request_read_chunk(
   struct http_request_s* request,
   void (*chunk_cb)(struct http_request_s*)
 );
 
+// Returns the current chunk of the request body. This chunk is only valid until
+// the next call to `http_request_read_chunk`.
 struct http_string_s http_request_chunk(struct http_request_s* request);
 
 #ifdef __cplusplus
@@ -758,7 +767,6 @@ int reading_body(http_request_t* request) {
 }
 
 void end_session(http_request_t* session) {
-  //printf("ending session\n");
 #ifdef KQUEUE
   struct kevent ev_set;
   EV_SET(&ev_set, session->socket, EVFILT_TIMER, EV_DELETE, 0, 0, session);
@@ -788,7 +796,6 @@ void reset_timeout(http_request_t* request, int time) {
 void exec_response_handler(http_request_t* request, void (*handler)(http_request_t*));
 
 void write_response(http_request_t* request) {
-  //printf("writing!\n");
   if (!write_client_socket(request)) { return end_session(request); }
   if (request->bytes != request->capacity) {
 #ifdef KQUEUE
@@ -816,7 +823,6 @@ void write_response(http_request_t* request) {
     free_buffer(request);
     reset_timeout(request, HTTP_KEEP_ALIVE_TIMEOUT);
   } else {
-    //printf("connection: close\n");
     return end_session(request);
   }
 }
@@ -826,7 +832,6 @@ void exec_response_handler(http_request_t* request, void (*handler)(http_request
   if (HTTP_FLAG_CHECK(request->flags, HTTP_RESPONSE_READY)) {
     write_response(request);
   } else {
-    //printf("setting write state\n");
     HTTP_FLAG_SET(request->flags, HTTP_RESPONSE_PAUSED);
   }
 }
@@ -855,14 +860,12 @@ void http_request_read_chunk(
   struct http_request_s* request,
   void (*chunk_cb)(struct http_request_s*)
 ) {
-  //printf("read chunk\n");
   request->chunk_cb = chunk_cb;
   http_token_t token = http_chunk_parse(&request->parser, request->buf, request->bytes);
   http_token_t body;
   switch (token.type) {
     case HTTP_CHUNK_BODY: //Next chunk exists in read buffer
       request->token = token;
-      //printf("HTTP_CHUNK_BODY: calling chunk cb\n");
       chunk_cb(request);
       break;
     case HTTP_CHUNK_BODY_PARTIAL: //Part of a chunk exists in read buffer
@@ -882,8 +885,6 @@ void http_request_read_chunk(
 }
 
 void http_session(http_request_t* request) {
-  //static char const * states[] = { "INIT", "READ_HEADERS", "READ_BODY", "WRITE", "READ_CHUNK", "NOP" };
-  //printf("%s\n", states[request->state]);
   switch (request->state) {
     case HTTP_SESSION_INIT:
       init_session(request);
@@ -891,6 +892,7 @@ void http_session(http_request_t* request) {
       // fallthrough
     case HTTP_SESSION_READ_HEADERS:
       if (!read_client_socket(request)) { return end_session(request); }
+      reset_timeout(request, HTTP_REQUEST_TIMEOUT);
       parse_tokens(request);
       if (!parsing_headers(request) && request->parser.content_length == PAYLOAD_TOO_LARGE) {
         return error_response(request, 413, "Payload Too Large");
@@ -903,22 +905,20 @@ void http_session(http_request_t* request) {
         }
         return exec_response_handler(request, request->server->request_handler);
       }
-      reset_timeout(request, HTTP_REQUEST_TIMEOUT);
       break;
     case HTTP_SESSION_READ_BODY:
       if (!read_client_socket(request)) { return end_session(request); }
+      reset_timeout(request, HTTP_REQUEST_TIMEOUT);
       if (!reading_body(request)) {
         return exec_response_handler(request, request->server->request_handler);
       }
-      reset_timeout(request, 20);
       break;
     case HTTP_SESSION_READ_CHUNK:
       if (!read_client_socket(request)) { return end_session(request); }
+      reset_timeout(request, HTTP_REQUEST_TIMEOUT);
       http_token_t token = http_chunk_parse(&request->parser, request->buf, request->bytes);
-      //printf("token type in session: %d\n", token.type);
       if (token.type == HTTP_CHUNK_BODY) {
         request->token = token;
-        //printf("HTTP_SESSION_READ_CHUNK: calling chunk cb\n");
         request->state = HTTP_SESSION_NOP;
         request->chunk_cb(request);
       }
