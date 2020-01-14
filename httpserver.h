@@ -816,8 +816,7 @@ void write_response(http_request_t* request) {
   if (request->bytes != request->capacity) {
 #ifdef KQUEUE
     struct kevent ev_set[2];
-    EV_SET(&ev_set[0], request->socket, EVFILT_READ, EV_DELETE, 0, 0, NULL);
-    EV_SET(&ev_set[1], request->socket, EVFILT_WRITE, EV_ADD, 0, 0, request);
+    EV_SET(&ev_set[0], request->socket, EVFILT_WRITE, EV_ADD | EV_CLEAR, 0, 0, request);
     kevent(request->server->loop, ev_set, 2, NULL, 0, NULL);
 #else
     struct epoll_event ev;
@@ -1073,7 +1072,7 @@ void http_listen(http_server_t* serv) {
 
 #ifdef KQUEUE
   struct kevent ev_set;
-  EV_SET(&ev_set, serv->socket, EVFILT_READ, EV_ADD, 0, 0, serv);
+  EV_SET(&ev_set, serv->socket, EVFILT_READ, EV_ADD | EV_CLEAR, 0, 0, serv);
   kevent(serv->loop, &ev_set, 1, NULL, 0, NULL);
 #else
   struct epoll_event ev;
