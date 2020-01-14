@@ -24,17 +24,24 @@ void chunk_cb(struct http_request_s* request) {
   }
 }
 
+typedef struct {
+  char* buf;
+  int index;
+} chunk_buf_t;
+
 void chunk_req_cb(struct http_request_s* request) {
   http_string_t str = http_request_chunk(request);
+  chunk_buf_t* chunk_buffer = (chunk_buf_t*)http_request_userdata(request);
   if (str.len > 0) {
-    //printf("CHUNK LENGTH: %d\n", str.len);
-    printf("%.*s\n", str.len, str.buf);
+    memcpy(chunk_buffer->buf + chunk_buffer->index, str.buf, str.len);
+    chunk_buffer->index += str.len;
     http_request_read_chunk(request, chunk_req_cb);
   } else {
     struct http_response_s* response = http_response_init();
-    http_response_body(response, RESPONSE, sizeof(RESPONSE) - 1);
-    //printf("responding!\n");
+    http_response_body(response, chunk_buffer->buf, chunk_buffer->index);
     http_respond(request, response);
+    free(chunk_buffer->buf);
+    free(chunk_buffer);
   }
 }
 
@@ -65,6 +72,9 @@ void handle_request(struct http_request_s* request) {
     http_respond_chunk(request, response, chunk_cb);
     return;
   } else if (request_target_is(request, "/chunked-req")) {
+    chunk_buf_t* chunk_buffer = (chunk_buf_t*)calloc(1, sizeof(chunk_buf_t));
+    chunk_buffer->buf = (char*)malloc(512 * 1024);
+    http_request_set_userdata(request, chunk_buffer);
     http_request_read_chunk(request, chunk_req_cb);
     return;
   } else if (request_target_is(request, "/headers")) {

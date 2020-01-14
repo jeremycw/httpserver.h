@@ -731,6 +731,7 @@ void parse_tokens(http_request_t* session) {
 }
 
 void init_session(http_request_t* session) {
+  session->flags = 0;
   session->flags |= HTTP_AUTOMATIC;
   session->parser = (http_parser_t){ };
   session->bytes = 0;
@@ -787,6 +788,7 @@ void reset_timeout(http_request_t* request, int time) {
 void exec_response_handler(http_request_t* request, void (*handler)(http_request_t*));
 
 void write_response(http_request_t* request) {
+  //printf("writing!\n");
   if (!write_client_socket(request)) { return end_session(request); }
   if (request->bytes != request->capacity) {
 #ifdef KQUEUE
@@ -923,8 +925,6 @@ void http_session(http_request_t* request) {
       break;
     case HTTP_SESSION_WRITE:
       write_response(request);
-      break;
-    case HTTP_SESSION_NOP:
       break;
   }
 }
