@@ -885,6 +885,7 @@ void http_request_read_chunk(
 }
 
 void http_session(http_request_t* request) {
+  http_token_t token;
   switch (request->state) {
     case HTTP_SESSION_INIT:
       init_session(request);
@@ -916,7 +917,7 @@ void http_session(http_request_t* request) {
     case HTTP_SESSION_READ_CHUNK:
       if (!read_client_socket(request)) { return end_session(request); }
       reset_timeout(request, HTTP_REQUEST_TIMEOUT);
-      http_token_t token = http_chunk_parse(&request->parser, request->buf, request->bytes);
+      token = http_chunk_parse(&request->parser, request->buf, request->bytes);
       if (token.type == HTTP_CHUNK_BODY) {
         request->token = token;
         request->state = HTTP_SESSION_NOP;
