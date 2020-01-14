@@ -16,15 +16,6 @@ echo "\n\nChunked Response keep-alive:"
 curl http://localhost:8080/chunked http://localhost:8080/chunked
 echo "\n\nChunked Response close:"
 curl -H'Connection: close' http://localhost:8080/chunked http://localhost:8080/chunked
-echo "\n\nChunked Request keep-alive: (expect empty)"
-dd if=/dev/urandom of=test.dat bs=262144 count=1 2> /dev/null
-curl -H'Expect:' -H'Transfer-Encoding: chunked' -XPOST --data-binary @test.dat -o r1.dat http://localhost:8080/chunked-req -o r2.dat http://localhost:8080/chunked-req
-diff r1.dat test.dat
-diff r2.dat test.dat
-echo "\n\nChunked Request close: (expect empty)"
-curl -H'Expect:' -H'Transfer-Encoding: chunked' -XPOST --data-binary @test.dat -o r3.dat http://localhost:8080/chunked-req -o r4.dat http://localhost:8080/chunked-req
-diff r3.dat test.dat
-diff r4.dat test.dat
 echo "\n\nPoll Server:"
 curl http://localhost:8081/ &
 sleep 1
@@ -46,4 +37,4 @@ dd if=/dev/urandom of=test.dat bs=52428800 count=1 2> /dev/null
 ab -c 2 -n 10 -p test.dat http://127.0.0.1:8080/echo > large-file.bench
 cat large-file.bench | grep Complete
 cat large-file.bench 1>&2
-rm *.dat *.bench
+rm test.dat *.bench

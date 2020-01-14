@@ -14,7 +14,7 @@ test-cpp: test-results-cpp.txt
 valgrind: valgrind-results.txt
 	diff valgrind-results.txt test/valgrind.txt
 
-test-results.txt: http-server test/run
+test-results.txt: http-server
 	./http-server & test/run > test-results.txt; killall http-server;
 
 valgrind-results.txt: http-server
