@@ -569,18 +569,14 @@ http_token_t http_chunk_parse(http_request_t* request, char* input, int n) {
     switch (parser->state) {
       case HTTP_CHUNK_SIZE:
         if (c == ';') {
-          //printf("CHUNK_SIZE -> CHUNK_EXTN : %d\n", parser->len);
           parser->state = HTTP_CHUNK_EXTN;
         } else if (c == '\n') {
           // Full chunk exists in buffer
-          //printf("remaining: %d, content: %d\n", remaining, parser->content_length);
           parser->token_start_index = i + 1;
           parser->len = 0;
           if (remaining >= parser->content_length) {
-            //printf("CHUNK_SIZE -> CHUNK_BODY_END : %d\n", parser->len);
             return http_gen_body_token(parser);
           }
-          //printf("CHUNK_SIZE -> CHUNK_BODY : %d\n", parser->len);
           parser->state = HTTP_CHUNK_BODY;
         } else if (c == '\r') {
           break;
@@ -601,20 +597,17 @@ http_token_t http_chunk_parse(http_request_t* request, char* input, int n) {
             parser->token_start_index = i + 1;
             return http_gen_body_token(parser);
           }
-          //printf("CHUNK_EXTN -> CHUNK_BODY : %d\n", parser->len);
           parser->token_start_index = i + 1;
           parser->state = HTTP_CHUNK_BODY;
         }
         break;
       case HTTP_CHUNK_BODY:
         if (remaining >= parser->content_length) {
-          //printf("CHUNK_BODY -> CHUNK_BODY_END : %d\n", parser->len);
           return http_gen_body_token(parser);
         }
         break;
       case HTTP_CHUNK_BODY_END:
         if (c == '\n') {
-          //printf("CHUNK_BODY_END -> CHUNK_SIZE : %d\n", parser->len);
           parser->state = HTTP_CHUNK_SIZE;
           parser->content_length = 0;
           parser->len = 0;
@@ -625,7 +618,6 @@ http_token_t http_chunk_parse(http_request_t* request, char* input, int n) {
   }
   // move bytes of partial token to start of buffer
   if (parser->token_start_index != parser->body_start_index) {
-    //printf("adjusting buffer\n");
     parser->start = parser->body_start_index + parser->len - 1;
     int tsi = parser->token_start_index;
     parser->token_start_index = parser->body_start_index;
@@ -737,7 +729,6 @@ int write_client_socket(http_request_t* session) {
     session->buf + session->bytes,
     session->capacity - session->bytes
   );
-  //printf("Wrote: %d\n", bytes);
   if (bytes > 0) session->bytes += bytes;
   return errno == EPIPE ? 0 : 1;
 }
@@ -752,7 +743,6 @@ void free_buffer(http_request_t* session) {
 }
 
 void parse_tokens(http_request_t* session) {
-  //static char const * types[] = { "METHOD", "TARGET", "VERSION", "HEADER_KEY", "HEADER_VAL", "NULL", "NONE", "BODY" };
   http_token_t token;
   int chunk_start = 0;
   do {
@@ -762,9 +752,7 @@ void parse_tokens(http_request_t* session) {
       http_token_dyn_push(&session->tokens, token);
     }
     chunk_start = token.type == HTTP_BODY && token.len == HTTP_CHUNKED_LEN;
-    //printf("%s, ", types[token.type]);
   } while (token.type != HTTP_NONE && !chunk_start);
-  //printf("\n");
 }
 
 void init_session(http_request_t* session) {
@@ -896,8 +884,6 @@ void http_request_read_chunk(
 
 void http_session(http_request_t* request) {
   http_token_t token;
-  //static char const * states[] = { "INIT", "READ_HEADERS", "READ_BODY", "WRITE", "READ_CHUNK", "NOP" };
-  //printf("%d: %s\n", request->socket, states[request->state]);
   switch (request->state) {
     case HTTP_SESSION_INIT:
       init_session(request);
