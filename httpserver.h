@@ -1540,9 +1540,9 @@ int http_server_listen(http_server_t* serv) {
 }
 
 void http_platform_delete_events(http_request_t* request) {
-  epoll_ctl(session->server->loop, EPOLL_CTL_DEL, session->socket, NULL);
-  epoll_ctl(session->server->loop, EPOLL_CTL_DEL, session->timerfd, NULL);
-  close(session->timerfd);
+  epoll_ctl(request->server->loop, EPOLL_CTL_DEL, request->socket, NULL);
+  epoll_ctl(request->server->loop, EPOLL_CTL_DEL, request->timerfd, NULL);
+  close(request->timerfd);
 }
 
 int http_server_poll(http_server_t* serv) {
@@ -1559,7 +1559,7 @@ void http_platform_add_events(http_request_t* request) {
   struct epoll_event ev;
   ev.events = EPOLLIN | EPOLLET;
   ev.data.ptr = request;
-  epoll_ctl(server->loop, EPOLL_CTL_ADD, sock, &ev);
+  epoll_ctl(request->server->loop, EPOLL_CTL_ADD, request->socket, &ev);
 
   int tfd = timerfd_create(CLOCK_MONOTONIC, 0);
   struct itimerspec ts = {};
@@ -1569,7 +1569,7 @@ void http_platform_add_events(http_request_t* request) {
 
   ev.events = EPOLLIN | EPOLLET;
   ev.data.ptr = &request->timer_handler;
-  epoll_ctl(server->loop, EPOLL_CTL_ADD, tfd, &ev);
+  epoll_ctl(request->server->loop, EPOLL_CTL_ADD, tfd, &ev);
   request->timerfd = tfd;
 }
 
