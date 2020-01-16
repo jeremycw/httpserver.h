@@ -4,7 +4,7 @@ os:
 
 language: c
 script:
-  - make test
+  - make CFLAGS="-fsanitize=address -fsanitize=undefined -fno-sanitize-recover=all" test
   - make test-cpp
   - make clean
   - if [ "$TRAVIS_OS_NAME" = "linux" ]; then make CFLAGS=-g valgrind; fi

@@ -87,6 +87,7 @@ void handle_request(struct http_request_s* request) {
     }
     http_response_header(response, "Content-Type", "text/plain");
     http_response_body(response, buf, i);
+    return http_respond(request, response);
   } else {
     http_response_header(response, "Content-Type", "text/plain");
     http_response_body(response, RESPONSE, sizeof(RESPONSE) - 1);
