@@ -556,6 +556,9 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n) {
   return token;
 }
 
+// When we detect that the full chunk exists in the read buffer we can
+// immediately emit the HTTP_CHUNK_BODY token and skip reading forward to the
+// end of the chunk
 http_token_t http_gen_body_token(http_parser_t* parser) {
   http_token_t token;
   token.index = parser->token_start_index;
@@ -577,10 +580,10 @@ http_token_t http_chunk_parse(http_request_t* request, char* input, int n) {
         if (c == ';') {
           parser->state = HTTP_CHUNK_EXTN;
         } else if (c == '\n') {
-          // Full chunk exists in buffer
           parser->token_start_index = i + 1;
           parser->len = 0;
           if (remaining >= parser->content_length) {
+            // Full chunk exists in buffer
             return http_gen_body_token(parser);
           }
           parser->state = HTTP_CHUNK_BODY;
@@ -600,6 +603,7 @@ http_token_t http_chunk_parse(http_request_t* request, char* input, int n) {
       case HTTP_CHUNK_EXTN:
         if (c == '\n') {
           if (remaining >= parser->content_length) {
+            // Full chunk exists in buffer
             parser->token_start_index = i + 1;
             return http_gen_body_token(parser);
           }
@@ -609,6 +613,7 @@ http_token_t http_chunk_parse(http_request_t* request, char* input, int n) {
         break;
       case HTTP_CHUNK_BODY:
         if (remaining >= parser->content_length) {
+          // The remaining portion of the chunk exists in the read buffer
           return http_gen_body_token(parser);
         }
         break;
@@ -622,15 +627,26 @@ http_token_t http_chunk_parse(http_request_t* request, char* input, int n) {
         break;
     }
   }
-  // move bytes of partial token to start of buffer
+  // This code is reached when we come to the end of our read buffer and no
+  // token has been emitted during this call. If we are part way through parsing
+  // a token at the end of the buffer or the next token would require us to grow
+  // the buffer then we want to reset the parser to overwrite old chunks so that
+  // we don't need to grow the buffer.
   if (parser->token_start_index != parser->body_start_index) {
+    // Next time, start parsing as if the current token has been shifted to the
+    // start of the http body.
     parser->start = parser->body_start_index + parser->len - 1;
     int tsi = parser->token_start_index;
     parser->token_start_index = parser->body_start_index;
+    // This will make the next read overwrite the old bytes
     request->bytes = parser->start;
+    // If parser->len is 1 then there is no current partial token. This is kind
+    // of ugly because len gets incremented in the for loop before we get here
+    // so we need to check for 1 instead of 0
     if (parser->len > 1) {
       char* dst = input + parser->body_start_index;
       char const* src = input + tsi;
+      // Copy partial token to beginning of body
       memcpy(dst, src, n - tsi);
     }
   }
@@ -811,20 +827,28 @@ void exec_response_handler(http_request_t* request, void (*handler)(http_request
 void write_response(http_request_t* request) {
   if (!write_client_socket(request)) { return end_session(request); }
   if (request->bytes != request->capacity) {
+    // All bytes of the body were not written and we need to wait until the
+    // socket is writable again to complete the write
     http_platform_add_write_event(request);
     request->state = HTTP_SESSION_WRITE;
     reset_timeout(request, HTTP_REQUEST_TIMEOUT);
   } else if (HTTP_FLAG_CHECK(request->flags, HTTP_CHUNKED)) {
+    // All bytes of the chunk were written and we need to get the next chunk
+    // from the application.
     request->state = HTTP_SESSION_WRITE;
     reset_timeout(request, HTTP_REQUEST_TIMEOUT);
     free_buffer(request);
     HTTP_FLAG_CLEAR(request->flags, HTTP_RESPONSE_READY);
     exec_response_handler(request, request->chunk_cb);
   } else if (HTTP_FLAG_CHECK(request->flags, HTTP_KEEP_ALIVE)) {
+    // All bytes of the response were successfully written. However the
+    // keep-alive flag was set so we don't close the connection, we just clean
+    // up
     request->state = HTTP_SESSION_INIT;
     free_buffer(request);
     reset_timeout(request, HTTP_KEEP_ALIVE_TIMEOUT);
   } else {
+    // All response bytes were written and the connection should be closed
     return end_session(request);
   }
 }
@@ -832,8 +856,10 @@ void write_response(http_request_t* request) {
 void exec_response_handler(http_request_t* request, void (*handler)(http_request_t*)) {
   handler(request);
   if (HTTP_FLAG_CHECK(request->flags, HTTP_RESPONSE_READY)) {
+    // The request handler has been called and a response is immediately ready.
     write_response(request);
   } else {
+    // The response is not ready immediately and will be written out later.
     HTTP_FLAG_SET(request->flags, HTTP_RESPONSE_PAUSED);
   }
 }
@@ -847,27 +873,34 @@ void error_response(http_request_t* request, int code, char const * message) {
   write_response(request);
 }
 
+// Application requesting next chunk of request body.
 void http_request_read_chunk(
   struct http_request_s* request,
   void (*chunk_cb)(struct http_request_s*)
 ) {
   request->chunk_cb = chunk_cb;
   http_token_t token = http_chunk_parse(request, request->buf, request->bytes);
-  if (token.type == HTTP_CHUNK_BODY) { //Next chunk exists in read buffer
+  if (token.type == HTTP_CHUNK_BODY) {
+    // The next chunk was in the read buffer and is ready.
     request->token = token;
     chunk_cb(request);
-  } else { //No buffered chunks, read again
+  } else {
+    // No chunk is in the read buffer, continue reading the socket.
     if (!read_client_socket(request)) { return end_session(request); }
     http_token_t token = http_chunk_parse(request, request->buf, request->bytes);
     if (token.type == HTTP_CHUNK_BODY) {
+      // A chunk was in the kernel network buffer
       request->token = token;
       request->chunk_cb(request);
     } else {
+      // No chunk ready, wait for IO.
       request->state = HTTP_SESSION_READ_CHUNK;
     }
   }
 }
 
+// This is the heart of the request logic. This is the state machine that
+// controls what happens when an IO event is received.
 void http_session(http_request_t* request) {
   http_token_t token;
   switch (request->state) {
@@ -882,9 +915,13 @@ void http_session(http_request_t* request) {
       if (!parsing_headers(request) && request->parser.content_length == PAYLOAD_TOO_LARGE) {
         return error_response(request, 413, "Payload Too Large");
       } else if (reading_body(request)) {
+        // The full request body has not been ready. Need to wait for more IO.
         request->state = HTTP_SESSION_READ_BODY;
       } else if (!parsing_headers(request)) {
         if (request->parser.flags & HS_PF_CHUNKED) {
+          // Set state to NOP for chunked requests. This means we won't handle
+          // any read events on the socket until the application has requested
+          // to read a chunk.
           request->state = HTTP_SESSION_NOP;
           http_parse_start_chunk_mode(&request->parser);
         }
@@ -895,14 +932,18 @@ void http_session(http_request_t* request) {
       if (!read_client_socket(request)) { return end_session(request); }
       reset_timeout(request, HTTP_REQUEST_TIMEOUT);
       if (!reading_body(request)) {
+        // Full body has been read into the read buffer. Call the application
+        // request handler
         return exec_response_handler(request, request->server->request_handler);
       }
+      // Full body has still not been read. Wait for more IO.
       break;
     case HTTP_SESSION_READ_CHUNK:
       if (!read_client_socket(request)) { return end_session(request); }
       reset_timeout(request, HTTP_REQUEST_TIMEOUT);
       token = http_chunk_parse(request, request->buf, request->bytes);
       if (token.type == HTTP_CHUNK_BODY) {
+        // Chunk is ready call the chunk handler
         request->token = token;
         request->state = HTTP_SESSION_NOP;
         request->chunk_cb(request);
@@ -953,6 +994,7 @@ http_server_t* http_server_init(int port, void (*handler)(http_request_t*)) {
 }
 
 void http_listen(http_server_t* serv) {
+  // Ignore SIGPIPE. We handle these errors at the call site.
   signal(SIGPIPE, SIG_IGN);
   serv->socket = socket(AF_INET, SOCK_STREAM, 0);
   int flag = 1;
@@ -1338,8 +1380,10 @@ void http_end_response(http_request_t* request, http_response_t* response, grwpr
   request->bytes = 0;
   request->capacity = printctx->size;
   request->state = HTTP_SESSION_WRITE;
+  // Signal that the response is ready for writing.
   HTTP_FLAG_SET(request->flags, HTTP_RESPONSE_READY);
   if (HTTP_FLAG_CHECK(request->flags, HTTP_RESPONSE_PAUSED)) {
+    // If the request has been paused waiting for the response clear the flag
     HTTP_FLAG_CLEAR(request->flags, HTTP_RESPONSE_PAUSED);
     http_session(request);
   }
@@ -1556,11 +1600,14 @@ int http_server_poll(http_server_t* serv) {
 
 void http_platform_add_events(http_request_t* request) {
   request->timer_handler = http_request_timer_cb;
+
+  // Watch for read events
   struct epoll_event ev;
   ev.events = EPOLLIN | EPOLLET;
   ev.data.ptr = request;
   epoll_ctl(request->server->loop, EPOLL_CTL_ADD, request->socket, &ev);
 
+  // Add timer to timeout requests.
   int tfd = timerfd_create(CLOCK_MONOTONIC, 0);
   struct itimerspec ts = {};
   ts.it_value.tv_sec = 1;
