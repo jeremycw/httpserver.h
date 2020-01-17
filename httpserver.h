@@ -290,49 +290,85 @@ int main() {
 #include <limits.h>
 #include <assert.h>
 
-void http_platform_add_server_sock_events(struct http_server_s* serv);
-void http_platform_server_init(struct http_server_s* serv);
-void http_platform_delete_events(struct http_request_s* request);
-void http_platform_add_events(struct http_request_s* request);
-void http_platform_add_write_event(struct http_request_s* request);
-
 #ifdef KQUEUE
 #include <sys/event.h>
-
-void http_server_listen_cb(struct kevent* ev);
-void http_session_io_cb(struct kevent* ev);
 #else
 #include <sys/epoll.h>
 #include <sys/timerfd.h>
-
-typedef void (*epoll_cb_t)(struct epoll_event*);
-
-void http_server_listen_cb(struct epoll_event* ev);
-void http_session_io_cb(struct epoll_event* ev);
-void http_server_timer_cb(struct epoll_event* ev);
-void http_request_timer_cb(struct epoll_event* ev);
-
 #endif
 
-/******************************************************************************
- *
- * HTTP Parser
- *
- *****************************************************************************/
+// *** macro definitions
 
+// Application configurable
+#define HTTP_REQUEST_BUF_SIZE 1024
+#define HTTP_RESPONSE_BUF_SIZE 512
+#define HTTP_REQUEST_TIMEOUT 20
+#define HTTP_KEEP_ALIVE_TIMEOUT 120
+
+#define HTTP_FLAG_SET(var, flag) var |= flag
+#define HTTP_FLAG_CLEAR(var, flag) var &= ~flag
+#define HTTP_FLAG_CHECK(var, flag) (var & flag)
+
+// token types / parser states
 #define HTTP_METHOD 0
 #define HTTP_TARGET 1
 #define HTTP_VERSION 2
 #define HTTP_HEADER_KEY 3
 #define HTTP_HEADER_VALUE 4
+#define HTTP_HEADER_END 5
 #define HTTP_NONE 6
 #define HTTP_BODY 7
 
+// chunked token types / parser state
 #define HTTP_CHUNK_SIZE 8
 #define HTTP_CHUNK_EXTN 9
 #define HTTP_CHUNK_BODY 10
 #define HTTP_CHUNK_BODY_END 11
 #define HTTP_CHUNK_BODY_PARTIAL 12
+
+// parser flags
+#define HS_PF_TRANSFER_ENCODING 0x1
+#define HS_PF_CONTENT_LENGTH 0x2
+#define HS_PF_CHUNKED 0x4
+
+// parser sub states
+#define HTTP_LWS 2
+#define HTTP_CR 3
+#define HTTP_CRLF 4
+
+// parser comparisons
+#define HS_CONTENT_LENGTH_LOW "content-length"
+#define HS_CONTENT_LENGTH_UP "CONTENT-LENGTH"
+#define HS_TRANSFER_ENCODING_LOW "transfer-encoding"
+#define HS_TRANSFER_ENCODING_UP "TRANSFER-ENCODING"
+#define HS_CHUNKED_LOW "chunked"
+#define HS_CHUNKED_UP "CHUNKED"
+
+// parser sentinel lengths
+#define HS_PAYLOAD_TOO_LARGE -1
+#define HTTP_CHUNKED_LEN -2
+
+// http session states
+#define HTTP_SESSION_INIT 0
+#define HTTP_SESSION_READ_HEADERS 1
+#define HTTP_SESSION_READ_BODY 2
+#define HTTP_SESSION_WRITE 3
+#define HTTP_SESSION_READ_CHUNK 4
+#define HTTP_SESSION_NOP 5
+
+// http session flags
+#define HTTP_RESPONSE_READY 0x4
+#define HTTP_AUTOMATIC 0x8
+#define HTTP_RESPONSE_PAUSED 0x10
+#define HTTP_CHUNKED_RESPONSE 0x20
+
+// http version indicators
+#define HTTP_1_0 0
+#define HTTP_1_1 1
+
+// *** declarations ***
+
+// structs
 
 typedef struct {
   int index;
@@ -390,29 +426,150 @@ typedef struct http_request_s {
   char flags;
 } http_request_t;
 
-#define HS_PF_TRANSFER_ENCODING 0x1
-#define HS_PF_CONTENT_LENGTH 0x2
-#define HS_PF_CHUNKED 0x4
+typedef struct http_server_s {
+#ifdef KQUEUE
+  void (*handler)(struct kevent* ev);
+#else
+  epoll_cb_t handler;
+  epoll_cb_t timer_handler;
+#endif
+  int socket;
+  int port;
+  int loop;
+  int timerfd;
+  socklen_t len;
+  void (*request_handler)(http_request_t*);
+  struct sockaddr_in addr;
+  char* date;
+} http_server_t;
 
-#define HTTP_LWS 2
-#define HTTP_CR 3
-#define HTTP_CRLF 4
+typedef struct http_header_s {
+  char const * key;
+  char const * value;
+  struct http_header_s* next;
+} http_header_t;
 
-#define HTTP_HEADER_END 5
+typedef struct http_response_s {
+  http_header_t* headers;
+  char const * body;
+  int content_length;
+  int status;
+} http_response_t;
 
-#define HS_CONTENT_LENGTH_LOW "content-length"
-#define HS_CONTENT_LENGTH_UP "CONTENT-LENGTH"
-#define HS_TRANSFER_ENCODING_LOW "transfer-encoding"
-#define HS_TRANSFER_ENCODING_UP "TRANSFER-ENCODING"
-#define HS_CHUNKED_LOW "chunked"
-#define HS_CHUNKED_UP "CHUNKED"
-#define HS_PAYLOAD_TOO_LARGE -1
+typedef struct http_string_s http_string_t;
 
-#define HTTP_CHUNKED_LEN -1
+// prototypes
 
-#define HTTP_FLAG_SET(var, flag) var |= flag
-#define HTTP_FLAG_CLEAR(var, flag) var &= ~flag
-#define HTTP_FLAG_CHECK(var, flag) (var & flag)
+void hs_add_server_sock_events(struct http_server_s* serv);
+void hs_server_init(struct http_server_s* serv);
+void hs_delete_events(struct http_request_s* request);
+void hs_add_events(struct http_request_s* request);
+void hs_add_write_event(struct http_request_s* request);
+
+void hs_exec_response_handler(http_request_t* request, void (*handler)(http_request_t*));
+
+#ifdef KQUEUE
+
+void hs_server_listen_cb(struct kevent* ev);
+void hs_session_io_cb(struct kevent* ev);
+
+#else
+
+typedef void (*epoll_cb_t)(struct epoll_event*);
+
+void hs_server_listen_cb(struct epoll_event* ev);
+void hs_session_io_cb(struct epoll_event* ev);
+void hs_server_timer_cb(struct epoll_event* ev);
+void hs_request_timer_cb(struct epoll_event* ev);
+
+#endif
+
+// constants
+
+char const * hs_status_text[] = {
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  
+  //100s
+  "Continue", "Switching Protocols", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+
+  //200s
+  "OK", "Created", "Accepted", "Non-Authoritative Information", "No Content",
+  "Reset Content", "Partial Content", "", "", "",
+
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+
+  //300s
+  "Multiple Choices", "Moved Permanently", "Found", "See Other", "Not Modified",
+  "Use Proxy", "", "Temporary Redirect", "", "",
+
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+
+  //400s
+  "Bad Request", "Unauthorized", "Payment Required", "Forbidden", "Not Found",
+  "Method Not Allowed", "Not Acceptable", "Proxy Authentication Required",
+  "Request Timeout", "Conflict",
+
+  "Gone", "Length Required", "", "Payload Too Large", "", "", "", "", "", "",
+
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+
+  //500s
+  "Internal Server Error", "Not Implemented", "Bad Gateway", "Service Unavailable",
+  "Gateway Timeout", "", "", "", "", ""
+
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", ""
+};
+
+// *** http parser ***
 
 #define HS_P_MATCH_HEADER(up, low, i) \
   if ((c == up[(int)i] || c == low[(int)i]) && i < (char)(sizeof(up) - 1)) i++;
@@ -669,36 +826,7 @@ void http_parse_start_chunk_mode(http_parser_t* parser) {
   parser->state = HTTP_CHUNK_SIZE;
 }
 
-/******************************************************************************
- *
- * HTTP Server
- *
- *****************************************************************************/
-
-#define HTTP_RESPONSE_READY 0x4
-#define HTTP_AUTOMATIC 0x8
-#define HTTP_RESPONSE_PAUSED 0x10
-#define HTTP_CHUNKED 0x20
-
-#define HTTP_REQUEST_TIMEOUT 20
-#define HTTP_KEEP_ALIVE_TIMEOUT 120
-
-typedef struct http_server_s {
-#ifdef KQUEUE
-  void (*handler)(struct kevent* ev);
-#else
-  epoll_cb_t handler;
-  epoll_cb_t timer_handler;
-#endif
-  int socket;
-  int port;
-  int loop;
-  int timerfd;
-  socklen_t len;
-  void (*request_handler)(http_request_t*);
-  struct sockaddr_in addr;
-  char* date;
-} http_server_t;
+// *** http server ***
 
 void http_token_dyn_push(http_token_dyn_t* dyn, http_token_t a) {
   if (dyn->size == dyn->capacity) {
@@ -716,8 +844,6 @@ void http_token_dyn_init(http_token_dyn_t* dyn, int capacity) {
   dyn->size = 0;
   dyn->capacity = capacity;
 }
-
-#define HTTP_REQUEST_BUF_SIZE 1024
 
 void hs_bind_localhost(int s, struct sockaddr_in* addr, int port) {
   addr->sin_family = AF_INET;
@@ -813,18 +939,11 @@ int hs_reading_body(http_request_t* request) {
 }
 
 void hs_end_session(http_request_t* session) {
-  http_platform_delete_events(session);
+  hs_delete_events(session);
   close(session->socket);
   hs_free_buffer(session);
   free(session);
 }
-
-#define HTTP_SESSION_INIT 0
-#define HTTP_SESSION_READ_HEADERS 1
-#define HTTP_SESSION_READ_BODY 2
-#define HTTP_SESSION_WRITE 3
-#define HTTP_SESSION_READ_CHUNK 4
-#define HTTP_SESSION_NOP 5
 
 void hs_reset_timeout(http_request_t* request, int time) {
   request->timeout = time;
@@ -837,10 +956,10 @@ void hs_write_response(http_request_t* request) {
   if (request->bytes != request->capacity) {
     // All bytes of the body were not written and we need to wait until the
     // socket is writable again to complete the write
-    http_platform_add_write_event(request);
+    hs_add_write_event(request);
     request->state = HTTP_SESSION_WRITE;
     hs_reset_timeout(request, HTTP_REQUEST_TIMEOUT);
-  } else if (HTTP_FLAG_CHECK(request->flags, HTTP_CHUNKED)) {
+  } else if (HTTP_FLAG_CHECK(request->flags, HTTP_CHUNKED_RESPONSE)) {
     // All bytes of the chunk were written and we need to get the next chunk
     // from the application.
     request->state = HTTP_SESSION_WRITE;
@@ -976,10 +1095,10 @@ void hs_accept_connections(http_server_t* server) {
       session->socket = sock;
       session->server = server;
       session->timeout = HTTP_REQUEST_TIMEOUT;
-      session->handler = http_session_io_cb;
+      session->handler = hs_session_io_cb;
       int flags = fcntl(sock, F_GETFL, 0);
       fcntl(sock, F_SETFL, flags | O_NONBLOCK);
-      http_platform_add_events(session);
+      hs_add_events(session);
       http_session(session);
     }
   } while (sock > 0);
@@ -997,8 +1116,8 @@ http_server_t* http_server_init(int port, void (*handler)(http_request_t*)) {
   http_server_t* serv = (http_server_t*)malloc(sizeof(http_server_t));
   assert(serv != NULL);
   serv->port = port;
-  serv->handler = http_server_listen_cb;
-  http_platform_server_init(serv);
+  serv->handler = hs_server_listen_cb;
+  hs_server_init(serv);
   hs_generate_date_time(&serv->date);
   serv->request_handler = handler;
   return serv;
@@ -1015,7 +1134,7 @@ void http_listen(http_server_t* serv) {
   int flags = fcntl(serv->socket, F_GETFL, 0);
   fcntl(serv->socket, F_SETFL, flags | O_NONBLOCK);
   listen(serv->socket, 128);
-  http_platform_add_server_sock_events(serv);
+  hs_add_server_sock_events(serv);
 }
 
 int http_server_listen_poll(http_server_t* serv) {
@@ -1027,13 +1146,7 @@ int http_server_loop(http_server_t* server) {
   return server->loop;
 }
 
-/******************************************************************************
- *
- * HTTP Request
- *
- *****************************************************************************/
-
-typedef struct http_string_s http_string_t;
+// *** http request ***
 
 http_string_t http_get_token_string(http_request_t* request, int token_type) {
   http_string_t str = { 0, 0 };
@@ -1139,9 +1252,6 @@ void http_request_set_userdata(http_request_t* request, void* data) {
   request->data = data;
 }
 
-#define HTTP_1_0 0
-#define HTTP_1_1 1
-
 void auto_detect_keep_alive(http_request_t* request) {
   http_string_t str = http_get_token_string(request, HTTP_VERSION);
   int version = str.buf[str.len - 1] == '1';
@@ -1173,109 +1283,7 @@ http_string_t http_request_chunk(struct http_request_s* request) {
   };
 }
 
-/******************************************************************************
- *
- * HTTP Response
- *
- *****************************************************************************/
-
-typedef struct http_header_s {
-  char const * key;
-  char const * value;
-  struct http_header_s* next;
-} http_header_t;
-
-typedef struct http_response_s {
-  http_header_t* headers;
-  char const * body;
-  int content_length;
-  int status;
-} http_response_t;
-
-#define HTTP_RESPONSE_BUF_SIZE 512
-
-char const * status_text[] = {
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  
-  //100s
-  "Continue", "Switching Protocols", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-
-  //200s
-  "OK", "Created", "Accepted", "Non-Authoritative Information", "No Content",
-  "Reset Content", "Partial Content", "", "", "",
-
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-
-  //300s
-  "Multiple Choices", "Moved Permanently", "Found", "See Other", "Not Modified",
-  "Use Proxy", "", "Temporary Redirect", "", "",
-
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-
-  //400s
-  "Bad Request", "Unauthorized", "Payment Required", "Forbidden", "Not Found",
-  "Method Not Allowed", "Not Acceptable", "Proxy Authentication Required",
-  "Request Timeout", "Conflict",
-
-  "Gone", "Length Required", "", "Payload Too Large", "", "", "", "", "", "",
-
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-
-  //500s
-  "Internal Server Error", "Not Implemented", "Bad Gateway", "Service Unavailable",
-  "Gateway Timeout", "", "", "", "", ""
-
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", ""
-};
+// *** http response ***
 
 http_response_t* http_response_init() {
   http_response_t* response = (http_response_t*)calloc(1, sizeof(http_response_t));
@@ -1352,7 +1360,7 @@ void http_buffer_headers(
     grwprintf(printctx, "%s: %s\r\n", header->key, header->value);
     header = header->next;
   }
-  if (!HTTP_FLAG_CHECK(request->flags, HTTP_CHUNKED)) {
+  if (!HTTP_FLAG_CHECK(request->flags, HTTP_CHUNKED_RESPONSE)) {
     grwprintf(printctx, "Content-Length: %d\r\n", response->content_length);
   }
   grwprintf(printctx, "\r\n");
@@ -1373,7 +1381,7 @@ void http_respond_headers(
   }
   grwprintf(
     printctx, "HTTP/1.1 %d %s\r\nDate: %.24s\r\n",
-    response->status, status_text[response->status], request->server->date
+    response->status, hs_status_text[response->status], request->server->date
   );
   http_buffer_headers(request, response, printctx);
 }
@@ -1417,8 +1425,8 @@ void http_respond_chunk(
 ) {
   grwprintf_t printctx;
   grwprintf_init(&printctx, HTTP_RESPONSE_BUF_SIZE);
-  if (!HTTP_FLAG_CHECK(request->flags, HTTP_CHUNKED)) {
-    HTTP_FLAG_SET(request->flags, HTTP_CHUNKED);
+  if (!HTTP_FLAG_CHECK(request->flags, HTTP_CHUNKED_RESPONSE)) {
+    HTTP_FLAG_SET(request->flags, HTTP_CHUNKED_RESPONSE);
     http_response_header(response, "Transfer-Encoding", "chunked");
     http_respond_headers(request, response, &printctx);
   }
@@ -1435,19 +1443,15 @@ void http_respond_chunk_end(http_request_t* request, http_response_t* response) 
   grwprintf(&printctx, "0\r\n");
   http_buffer_headers(request, response, &printctx);
   grwprintf(&printctx, "\r\n");
-  HTTP_FLAG_CLEAR(request->flags, HTTP_CHUNKED);
+  HTTP_FLAG_CLEAR(request->flags, HTTP_CHUNKED_RESPONSE);
   http_end_response(request, response, &printctx);
 }
 
-/******************************************************************************
- *
- * kqueue platform specific
- *
- *****************************************************************************/
+// *** kqueue platform specific ***
 
 #ifdef KQUEUE
 
-void http_server_listen_cb(struct kevent* ev) {
+void hs_server_listen_cb(struct kevent* ev) {
   http_server_t* server = (http_server_t*)ev->udata;
   if (ev->filter == EVFILT_TIMER) {
     hs_generate_date_time(&server->date);
@@ -1456,7 +1460,7 @@ void http_server_listen_cb(struct kevent* ev) {
   }
 }
 
-void http_session_io_cb(struct kevent* ev) {
+void hs_session_io_cb(struct kevent* ev) {
   http_request_t* request = (http_request_t*)ev->udata;
   if (ev->filter == EVFILT_TIMER) {
     request->timeout -= 1;
@@ -1466,14 +1470,14 @@ void http_session_io_cb(struct kevent* ev) {
   }
 }
 
-void http_platform_server_init(http_server_t* serv) {
+void hs_server_init(http_server_t* serv) {
   serv->loop = kqueue();
   struct kevent ev_set;
   EV_SET(&ev_set, 1, EVFILT_TIMER, EV_ADD | EV_ENABLE, NOTE_SECONDS, 1, serv);
   kevent(serv->loop, &ev_set, 1, NULL, 0, NULL);
 }
 
-void http_platform_add_server_sock_events(http_server_t* serv) {
+void hs_add_server_sock_events(http_server_t* serv) {
   struct kevent ev_set;
   EV_SET(&ev_set, serv->socket, EVFILT_READ, EV_ADD | EV_CLEAR, 0, 0, serv);
   kevent(serv->loop, &ev_set, 1, NULL, 0, NULL);
@@ -1494,7 +1498,7 @@ int http_server_listen(http_server_t* serv) {
   return 0;
 }
 
-void http_platform_delete_events(http_request_t* request) {
+void hs_delete_events(http_request_t* request) {
   struct kevent ev_set;
   EV_SET(&ev_set, request->socket, EVFILT_TIMER, EV_DELETE, 0, 0, request);
   kevent(request->server->loop, &ev_set, 1, NULL, 0, NULL);
@@ -1511,14 +1515,14 @@ int http_server_poll(http_server_t* serv) {
   return nev;
 }
 
-void http_platform_add_events(http_request_t* request) {
+void hs_add_events(http_request_t* request) {
   struct kevent ev_set[2];
   EV_SET(&ev_set[0], request->socket, EVFILT_READ, EV_ADD, 0, 0, request);
   EV_SET(&ev_set[1], request->socket, EVFILT_TIMER, EV_ADD | EV_ENABLE, NOTE_SECONDS, 1, request);
   kevent(request->server->loop, ev_set, 2, NULL, 0, NULL);
 }
 
-void http_platform_add_write_event(http_request_t* request) {
+void hs_add_write_event(http_request_t* request) {
   struct kevent ev_set[2];
   EV_SET(&ev_set[0], request->socket, EVFILT_WRITE, EV_ADD | EV_CLEAR, 0, 0, request);
   kevent(request->server->loop, ev_set, 2, NULL, 0, NULL);
@@ -1526,21 +1530,17 @@ void http_platform_add_write_event(http_request_t* request) {
 
 #else
 
-/******************************************************************************
- *
- * epoll platform specific
- *
- *****************************************************************************/
+// *** epoll platform specific ***
 
-void http_server_listen_cb(struct epoll_event* ev) {
+void hs_server_listen_cb(struct epoll_event* ev) {
   hs_accept_connections((http_server_t*)ev->data.ptr);
 }
 
-void http_session_io_cb(struct epoll_event* ev) {
+void hs_session_io_cb(struct epoll_event* ev) {
   http_session((http_request_t*)ev->data.ptr);
 }
 
-void http_server_timer_cb(struct epoll_event* ev) {
+void hs_server_timer_cb(struct epoll_event* ev) {
   http_server_t* server = (http_server_t*)((char*)ev->data.ptr - sizeof(epoll_cb_t));
   uint64_t res;
   int bytes = read(server->timerfd, &res, sizeof(res));
@@ -1548,7 +1548,7 @@ void http_server_timer_cb(struct epoll_event* ev) {
   hs_generate_date_time(&server->date);
 }
 
-void http_request_timer_cb(struct epoll_event* ev) {
+void hs_request_timer_cb(struct epoll_event* ev) {
   http_request_t* request = (http_request_t*)((char*)ev->data.ptr - sizeof(epoll_cb_t));
   uint64_t res;
   int bytes = read(request->timerfd, &res, sizeof(res));
@@ -1557,16 +1557,16 @@ void http_request_timer_cb(struct epoll_event* ev) {
   if (request->timeout == 0) hs_end_session(request);
 }
 
-void http_platform_add_server_sock_events(http_server_t* serv) {
+void hs_add_server_sock_events(http_server_t* serv) {
   struct epoll_event ev;
   ev.events = EPOLLIN | EPOLLET;
   ev.data.ptr = serv;
   epoll_ctl(serv->loop, EPOLL_CTL_ADD, serv->socket, &ev);
 }
 
-void http_platform_server_init(http_server_t* serv) {
+void hs_server_init(http_server_t* serv) {
   serv->loop = epoll_create1(0);
-  serv->timer_handler = http_server_timer_cb;
+  serv->timer_handler = hs_server_timer_cb;
 
   int tfd = timerfd_create(CLOCK_MONOTONIC, 0);
   struct itimerspec ts = {};
@@ -1594,7 +1594,7 @@ int http_server_listen(http_server_t* serv) {
   return 0;
 }
 
-void http_platform_delete_events(http_request_t* request) {
+void hs_delete_events(http_request_t* request) {
   epoll_ctl(request->server->loop, EPOLL_CTL_DEL, request->socket, NULL);
   epoll_ctl(request->server->loop, EPOLL_CTL_DEL, request->timerfd, NULL);
   close(request->timerfd);
@@ -1609,8 +1609,8 @@ int http_server_poll(http_server_t* serv) {
   return nev;
 }
 
-void http_platform_add_events(http_request_t* request) {
-  request->timer_handler = http_request_timer_cb;
+void hs_add_events(http_request_t* request) {
+  request->timer_handler = hs_request_timer_cb;
 
   // Watch for read events
   struct epoll_event ev;
@@ -1631,7 +1631,7 @@ void http_platform_add_events(http_request_t* request) {
   request->timerfd = tfd;
 }
 
-void http_platform_add_write_event(http_request_t* request) {
+void hs_add_write_event(http_request_t* request) {
   struct epoll_event ev;
   ev.events = EPOLLOUT | EPOLLET;
   ev.data.ptr = request;
