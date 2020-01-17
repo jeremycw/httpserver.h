@@ -400,13 +400,13 @@ typedef struct http_request_s {
 
 #define HTTP_HEADER_END 5
 
-#define CONTENT_LENGTH_LOW "content-length"
-#define CONTENT_LENGTH_UP "CONTENT-LENGTH"
-#define TRANSFER_ENCODING_LOW "transfer-encoding"
-#define TRANSFER_ENCODING_UP "TRANSFER-ENCODING"
-#define CHUNKED_LOW "chunked"
-#define CHUNKED_UP "CHUNKED"
-#define PAYLOAD_TOO_LARGE -1
+#define HS_CONTENT_LENGTH_LOW "content-length"
+#define HS_CONTENT_LENGTH_UP "CONTENT-LENGTH"
+#define HS_TRANSFER_ENCODING_LOW "transfer-encoding"
+#define HS_TRANSFER_ENCODING_UP "TRANSFER-ENCODING"
+#define HS_CHUNKED_LOW "chunked"
+#define HS_CHUNKED_UP "CHUNKED"
+#define HS_PAYLOAD_TOO_LARGE -1
 
 #define HTTP_CHUNKED_LEN -1
 
@@ -477,8 +477,16 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n) {
           token.len = parser->len - 1;
           return token;
         }
-        HS_P_MATCH_HEADER(CONTENT_LENGTH_UP, CONTENT_LENGTH_LOW, parser->content_length_i)
-        HS_P_MATCH_HEADER(TRANSFER_ENCODING_UP, TRANSFER_ENCODING_LOW, parser->transfer_encoding_i)
+        HS_P_MATCH_HEADER(
+          HS_CONTENT_LENGTH_UP,
+          HS_CONTENT_LENGTH_LOW,
+          parser->content_length_i
+        )
+        HS_P_MATCH_HEADER(
+          HS_TRANSFER_ENCODING_UP,
+          HS_TRANSFER_ENCODING_LOW,
+          parser->transfer_encoding_i
+        )
         break;
       case HTTP_HEADER_VALUE:
         if (parser->sub_state == HTTP_LWS && (c == ' ' || c == '\t' || c == '\r' || c == '\n')) {
@@ -491,7 +499,7 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n) {
             parser->content_length *= 10;
             parser->content_length += c - '0';
           } else if (HTTP_FLAG_CHECK(parser->flags, HS_PF_TRANSFER_ENCODING)) {
-            HS_P_MATCH_HEADER(CHUNKED_UP, CHUNKED_LOW, parser->transfer_encoding_i)
+            HS_P_MATCH_HEADER(HS_CHUNKED_UP, HS_CHUNKED_LOW, parser->transfer_encoding_i)
           }
         } else if (parser->sub_state != HTTP_LWS && c == '\r') {
           parser->sub_state = HTTP_CR;
@@ -509,17 +517,17 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n) {
           return token;
         } else if (
           HTTP_FLAG_CHECK(parser->flags, HS_PF_CONTENT_LENGTH) &&
-          parser->content_length != PAYLOAD_TOO_LARGE
+          parser->content_length != HS_PAYLOAD_TOO_LARGE
         ) {
           int64_t new_content_length = parser->content_length * 10l;
           new_content_length += c - '0';
           if (new_content_length > INT_MAX) {
-            parser->content_length = PAYLOAD_TOO_LARGE;
+            parser->content_length = HS_PAYLOAD_TOO_LARGE;
           } else {
             parser->content_length = (int)new_content_length;
           }
         } else if (HTTP_FLAG_CHECK(parser->flags, HS_PF_TRANSFER_ENCODING)) {
-          HS_P_MATCH_HEADER(CHUNKED_UP, CHUNKED_LOW, parser->transfer_encoding_i)
+          HS_P_MATCH_HEADER(HS_CHUNKED_UP, HS_CHUNKED_LOW, parser->transfer_encoding_i)
         }
         break;
       case HTTP_HEADER_END:
@@ -711,7 +719,7 @@ void http_token_dyn_init(http_token_dyn_t* dyn, int capacity) {
 
 #define HTTP_REQUEST_BUF_SIZE 1024
 
-void bind_localhost(int s, struct sockaddr_in* addr, int port) {
+void hs_bind_localhost(int s, struct sockaddr_in* addr, int port) {
   addr->sin_family = AF_INET;
   addr->sin_addr.s_addr = INADDR_ANY;
   addr->sin_port = htons(port);
@@ -721,7 +729,7 @@ void bind_localhost(int s, struct sockaddr_in* addr, int port) {
   }
 }
 
-int read_client_socket(http_request_t* session) {
+int hs_read_client_socket(http_request_t* session) {
   if (!session->buf) {
     session->buf = (char*)calloc(1, HTTP_REQUEST_BUF_SIZE);
     assert(session->buf != NULL);
@@ -745,7 +753,7 @@ int read_client_socket(http_request_t* session) {
   return bytes == 0 ? 0 : 1;
 }
 
-int write_client_socket(http_request_t* session) {
+int hs_write_client_socket(http_request_t* session) {
   int bytes = write(
     session->socket,
     session->buf + session->bytes,
@@ -755,7 +763,7 @@ int write_client_socket(http_request_t* session) {
   return errno == EPIPE ? 0 : 1;
 }
 
-void free_buffer(http_request_t* session) {
+void hs_free_buffer(http_request_t* session) {
   if (session->buf) {
     free(session->buf);
     session->buf = NULL;
@@ -764,7 +772,7 @@ void free_buffer(http_request_t* session) {
   }
 }
 
-void parse_tokens(http_request_t* session) {
+void hs_parse_tokens(http_request_t* session) {
   http_token_t token;
   int chunk_start = 0;
   do {
@@ -777,7 +785,7 @@ void parse_tokens(http_request_t* session) {
   } while (token.type != HTTP_NONE && !chunk_start);
 }
 
-void init_session(http_request_t* session) {
+void hs_init_session(http_request_t* session) {
   session->flags = 0;
   session->flags |= HTTP_AUTOMATIC;
   session->parser = (http_parser_t){ };
@@ -788,11 +796,11 @@ void init_session(http_request_t* session) {
   session->token.type = HTTP_NONE;
 }
 
-int parsing_headers(http_request_t* request) {
+int hs_parsing_headers(http_request_t* request) {
   return request->token.type != HTTP_BODY;
 }
 
-int reading_body(http_request_t* request) {
+int hs_reading_body(http_request_t* request) {
   if (
     request->token.type != HTTP_BODY ||
     request->token.len == 0 ||
@@ -804,10 +812,10 @@ int reading_body(http_request_t* request) {
   return request->bytes < size;
 }
 
-void end_session(http_request_t* session) {
+void hs_end_session(http_request_t* session) {
   http_platform_delete_events(session);
   close(session->socket);
-  free_buffer(session);
+  hs_free_buffer(session);
   free(session);
 }
 
@@ -818,59 +826,59 @@ void end_session(http_request_t* session) {
 #define HTTP_SESSION_READ_CHUNK 4
 #define HTTP_SESSION_NOP 5
 
-void reset_timeout(http_request_t* request, int time) {
+void hs_reset_timeout(http_request_t* request, int time) {
   request->timeout = time;
 }
 
-void exec_response_handler(http_request_t* request, void (*handler)(http_request_t*));
+void hs_exec_response_handler(http_request_t* request, void (*handler)(http_request_t*));
 
-void write_response(http_request_t* request) {
-  if (!write_client_socket(request)) { return end_session(request); }
+void hs_write_response(http_request_t* request) {
+  if (!hs_write_client_socket(request)) { return hs_end_session(request); }
   if (request->bytes != request->capacity) {
     // All bytes of the body were not written and we need to wait until the
     // socket is writable again to complete the write
     http_platform_add_write_event(request);
     request->state = HTTP_SESSION_WRITE;
-    reset_timeout(request, HTTP_REQUEST_TIMEOUT);
+    hs_reset_timeout(request, HTTP_REQUEST_TIMEOUT);
   } else if (HTTP_FLAG_CHECK(request->flags, HTTP_CHUNKED)) {
     // All bytes of the chunk were written and we need to get the next chunk
     // from the application.
     request->state = HTTP_SESSION_WRITE;
-    reset_timeout(request, HTTP_REQUEST_TIMEOUT);
-    free_buffer(request);
+    hs_reset_timeout(request, HTTP_REQUEST_TIMEOUT);
+    hs_free_buffer(request);
     HTTP_FLAG_CLEAR(request->flags, HTTP_RESPONSE_READY);
-    exec_response_handler(request, request->chunk_cb);
+    hs_exec_response_handler(request, request->chunk_cb);
   } else if (HTTP_FLAG_CHECK(request->flags, HTTP_KEEP_ALIVE)) {
     // All bytes of the response were successfully written. However the
     // keep-alive flag was set so we don't close the connection, we just clean
     // up
     request->state = HTTP_SESSION_INIT;
-    free_buffer(request);
-    reset_timeout(request, HTTP_KEEP_ALIVE_TIMEOUT);
+    hs_free_buffer(request);
+    hs_reset_timeout(request, HTTP_KEEP_ALIVE_TIMEOUT);
   } else {
     // All response bytes were written and the connection should be closed
-    return end_session(request);
+    return hs_end_session(request);
   }
 }
 
-void exec_response_handler(http_request_t* request, void (*handler)(http_request_t*)) {
+void hs_exec_response_handler(http_request_t* request, void (*handler)(http_request_t*)) {
   handler(request);
   if (HTTP_FLAG_CHECK(request->flags, HTTP_RESPONSE_READY)) {
     // The request handler has been called and a response is immediately ready.
-    write_response(request);
+    hs_write_response(request);
   } else {
     // The response is not ready immediately and will be written out later.
     HTTP_FLAG_SET(request->flags, HTTP_RESPONSE_PAUSED);
   }
 }
 
-void error_response(http_request_t* request, int code, char const * message) {
+void hs_error_response(http_request_t* request, int code, char const * message) {
   struct http_response_s* response = http_response_init();
   http_response_status(response, code);
   http_response_header(response, "Content-Type", "text/plain");
   http_response_body(response, message, strlen(message));
   http_respond(request, response);
-  write_response(request);
+  hs_write_response(request);
 }
 
 // Application requesting next chunk of request body.
@@ -886,7 +894,7 @@ void http_request_read_chunk(
     chunk_cb(request);
   } else {
     // No chunk is in the read buffer, continue reading the socket.
-    if (!read_client_socket(request)) { return end_session(request); }
+    if (!hs_read_client_socket(request)) { return hs_end_session(request); }
     http_token_t token = http_chunk_parse(request, request->buf, request->bytes);
     if (token.type == HTTP_CHUNK_BODY) {
       // A chunk was in the kernel network buffer
@@ -905,19 +913,22 @@ void http_session(http_request_t* request) {
   http_token_t token;
   switch (request->state) {
     case HTTP_SESSION_INIT:
-      init_session(request);
+      hs_init_session(request);
       request->state = HTTP_SESSION_READ_HEADERS;
       // fallthrough
     case HTTP_SESSION_READ_HEADERS:
-      if (!read_client_socket(request)) { return end_session(request); }
-      reset_timeout(request, HTTP_REQUEST_TIMEOUT);
-      parse_tokens(request);
-      if (!parsing_headers(request) && request->parser.content_length == PAYLOAD_TOO_LARGE) {
-        return error_response(request, 413, "Payload Too Large");
-      } else if (reading_body(request)) {
+      if (!hs_read_client_socket(request)) { return hs_end_session(request); }
+      hs_reset_timeout(request, HTTP_REQUEST_TIMEOUT);
+      hs_parse_tokens(request);
+      if (
+        !hs_parsing_headers(request) &&
+        request->parser.content_length == HS_PAYLOAD_TOO_LARGE
+      ) {
+        return hs_error_response(request, 413, "Payload Too Large");
+      } else if (hs_reading_body(request)) {
         // The full request body has not been ready. Need to wait for more IO.
         request->state = HTTP_SESSION_READ_BODY;
-      } else if (!parsing_headers(request)) {
+      } else if (!hs_parsing_headers(request)) {
         if (request->parser.flags & HS_PF_CHUNKED) {
           // Set state to NOP for chunked requests. This means we won't handle
           // any read events on the socket until the application has requested
@@ -925,22 +936,22 @@ void http_session(http_request_t* request) {
           request->state = HTTP_SESSION_NOP;
           http_parse_start_chunk_mode(&request->parser);
         }
-        return exec_response_handler(request, request->server->request_handler);
+        return hs_exec_response_handler(request, request->server->request_handler);
       }
       break;
     case HTTP_SESSION_READ_BODY:
-      if (!read_client_socket(request)) { return end_session(request); }
-      reset_timeout(request, HTTP_REQUEST_TIMEOUT);
-      if (!reading_body(request)) {
+      if (!hs_read_client_socket(request)) { return hs_end_session(request); }
+      hs_reset_timeout(request, HTTP_REQUEST_TIMEOUT);
+      if (!hs_reading_body(request)) {
         // Full body has been read into the read buffer. Call the application
         // request handler
-        return exec_response_handler(request, request->server->request_handler);
+        return hs_exec_response_handler(request, request->server->request_handler);
       }
       // Full body has still not been read. Wait for more IO.
       break;
     case HTTP_SESSION_READ_CHUNK:
-      if (!read_client_socket(request)) { return end_session(request); }
-      reset_timeout(request, HTTP_REQUEST_TIMEOUT);
+      if (!hs_read_client_socket(request)) { return hs_end_session(request); }
+      hs_reset_timeout(request, HTTP_REQUEST_TIMEOUT);
       token = http_chunk_parse(request, request->buf, request->bytes);
       if (token.type == HTTP_CHUNK_BODY) {
         // Chunk is ready call the chunk handler
@@ -950,12 +961,12 @@ void http_session(http_request_t* request) {
       }
       break;
     case HTTP_SESSION_WRITE:
-      write_response(request);
+      hs_write_response(request);
       break;
   }
 }
 
-void accept_connections(http_server_t* server) {
+void hs_accept_connections(http_server_t* server) {
   int sock = 0;
   do {
     sock = accept(server->socket, (struct sockaddr *)&server->addr, &server->len);
@@ -974,7 +985,7 @@ void accept_connections(http_server_t* server) {
   } while (sock > 0);
 }
 
-void generate_date_time(char** datetime) {
+void hs_generate_date_time(char** datetime) {
   time_t rawtime;
   struct tm * timeinfo;
   time(&rawtime);
@@ -988,7 +999,7 @@ http_server_t* http_server_init(int port, void (*handler)(http_request_t*)) {
   serv->port = port;
   serv->handler = http_server_listen_cb;
   http_platform_server_init(serv);
-  generate_date_time(&serv->date);
+  hs_generate_date_time(&serv->date);
   serv->request_handler = handler;
   return serv;
 }
@@ -999,7 +1010,7 @@ void http_listen(http_server_t* serv) {
   serv->socket = socket(AF_INET, SOCK_STREAM, 0);
   int flag = 1;
   setsockopt(serv->socket, SOL_SOCKET, SO_REUSEPORT, &flag, sizeof(flag));
-  bind_localhost(serv->socket, &serv->addr, serv->port);
+  hs_bind_localhost(serv->socket, &serv->addr, serv->port);
   serv->len = sizeof(serv->addr);
   int flags = fcntl(serv->socket, F_GETFL, 0);
   fcntl(serv->socket, F_SETFL, flags | O_NONBLOCK);
@@ -1117,7 +1128,7 @@ http_string_t http_request_header(http_request_t* request, char const * key) {
 }
 
 void http_request_free_buffer(http_request_t* request) {
-  free_buffer(request);
+  hs_free_buffer(request);
 }
 
 void* http_request_userdata(http_request_t* request) {
@@ -1374,7 +1385,7 @@ void http_end_response(http_request_t* request, http_response_t* response, grwpr
     header = tmp->next;
     free(tmp);
   }
-  free_buffer(request);
+  hs_free_buffer(request);
   free(response);
   request->buf = printctx->buf;
   request->bytes = 0;
@@ -1439,9 +1450,9 @@ void http_respond_chunk_end(http_request_t* request, http_response_t* response) 
 void http_server_listen_cb(struct kevent* ev) {
   http_server_t* server = (http_server_t*)ev->udata;
   if (ev->filter == EVFILT_TIMER) {
-    generate_date_time(&server->date);
+    hs_generate_date_time(&server->date);
   } else {
-    accept_connections(server);
+    hs_accept_connections(server);
   }
 }
 
@@ -1449,7 +1460,7 @@ void http_session_io_cb(struct kevent* ev) {
   http_request_t* request = (http_request_t*)ev->udata;
   if (ev->filter == EVFILT_TIMER) {
     request->timeout -= 1;
-    if (request->timeout == 0) end_session(request);
+    if (request->timeout == 0) hs_end_session(request);
   } else {
     http_session(request);
   }
@@ -1522,7 +1533,7 @@ void http_platform_add_write_event(http_request_t* request) {
  *****************************************************************************/
 
 void http_server_listen_cb(struct epoll_event* ev) {
-  accept_connections((http_server_t*)ev->data.ptr);
+  hs_accept_connections((http_server_t*)ev->data.ptr);
 }
 
 void http_session_io_cb(struct epoll_event* ev) {
@@ -1534,7 +1545,7 @@ void http_server_timer_cb(struct epoll_event* ev) {
   uint64_t res;
   int bytes = read(server->timerfd, &res, sizeof(res));
   (void)bytes; // suppress warning
-  generate_date_time(&server->date);
+  hs_generate_date_time(&server->date);
 }
 
 void http_request_timer_cb(struct epoll_event* ev) {
@@ -1543,7 +1554,7 @@ void http_request_timer_cb(struct epoll_event* ev) {
   int bytes = read(request->timerfd, &res, sizeof(res));
   (void)bytes; // suppress warning
   request->timeout -= 1;
-  if (request->timeout == 0) end_session(request);
+  if (request->timeout == 0) hs_end_session(request);
 }
 
 void http_platform_add_server_sock_events(http_server_t* serv) {
