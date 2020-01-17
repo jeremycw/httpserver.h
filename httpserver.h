@@ -65,6 +65,19 @@
 *     HTTP_KEEP_ALIVE_TIMEOUT - default 120 - The amount of seconds to keep a
 *       connection alive a keep-alive request has completed.
 *
+*     HTTP_MAX_CONTENT_LENGTH - default 8388608 (8MB) - The max size in bytes
+*       of the request content length. It should be noted that the request body
+*       will be fully read into memory so while this could be redefined to a
+*       value as large as INT_MAX it will allocate a lot of memory. I would
+*       reccommend using chunked encoding for large requests.
+*
+*     HTTP_MAX_TOTAL_EST_MEM_USAGE - default 4294967296 (4GB) - This is the
+*       amount of read/write buffer space that is allowed to be allocated across
+*       all requests before new requests will get 503 responses.
+*
+*     HTTP_MAX_TOKEN_LENGTH - default 8192 (8KB) - This is the max size of any
+*       non body http tokens. i.e: header names, header values, url length, etc.
+*
 *   For more details see the documentation of the interface and the example
 *   below.
 *
@@ -304,6 +317,11 @@ int main() {
 #define HTTP_RESPONSE_BUF_SIZE 512
 #define HTTP_REQUEST_TIMEOUT 20
 #define HTTP_KEEP_ALIVE_TIMEOUT 120
+#define HTTP_MAX_CONTENT_LENGTH 8388608 // 8mb
+#define HTTP_MAX_TOKEN_LENGTH 8192 // 8kb
+#define HTTP_MAX_TOTAL_EST_MEM_USAGE 4294967296 // 4gb
+
+#define HTTP_MAX_HEADER_COUNT 127
 
 #define HTTP_FLAG_SET(var, flag) var |= flag
 #define HTTP_FLAG_CLEAR(var, flag) var &= ~flag
@@ -318,6 +336,11 @@ int main() {
 #define HTTP_HEADER_END 5
 #define HTTP_NONE 6
 #define HTTP_BODY 7
+#define HTTP_PARSE_ERROR 13
+
+// error sub types
+#define HTTP_ERR_PAYLOAD_TOO_LARGE 0
+#define HTTP_ERR_BAD_REQUEST 1
 
 // chunked token types / parser state
 #define HTTP_CHUNK_SIZE 8
@@ -345,8 +368,7 @@ int main() {
 #define HS_CHUNKED_UP "CHUNKED"
 
 // parser sentinel lengths
-#define HS_PAYLOAD_TOO_LARGE -1
-#define HTTP_CHUNKED_LEN -2
+#define HTTP_CHUNKED_LEN -1
 
 // http session states
 #define HTTP_SESSION_INIT 0
@@ -382,6 +404,7 @@ typedef struct {
   int token_start_index;
   int start;
   int body_start_index;
+  char header_count;
   char content_length_i;
   char transfer_encoding_i;
   char flags;
@@ -418,6 +441,7 @@ typedef struct http_request_s {
   int socket;
   char* buf;
   int bytes;
+  int written;
   int capacity;
   int timeout;
   struct http_server_s* server;
@@ -433,6 +457,7 @@ typedef struct http_server_s {
   epoll_cb_t handler;
   epoll_cb_t timer_handler;
 #endif
+  long memused;
   int socket;
   int port;
   int loop;
@@ -574,6 +599,15 @@ char const * hs_status_text[] = {
 #define HS_P_MATCH_HEADER(up, low, i) \
   if ((c == up[(int)i] || c == low[(int)i]) && i < (char)(sizeof(up) - 1)) i++;
 
+http_token_t hs_parse_error(http_parser_t* parser, int subtype) {
+  parser->len = 0;
+  parser->state = HTTP_PARSE_ERROR;
+  http_token_t token;
+  token.index = subtype;
+  token.type = HTTP_PARSE_ERROR;
+  return token;
+}
+
 http_token_t http_parse(http_parser_t* parser, char* input, int n) {
   for (int i = parser->start; i < n; ++i, parser->start = i + 1, parser->len++) {
     char c = input[i];
@@ -667,19 +701,20 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n) {
             HTTP_FLAG_SET(parser->flags, HS_PF_CHUNKED);
           }
           parser->transfer_encoding_i = 0;
+          if (parser->header_count == HTTP_MAX_HEADER_COUNT) {
+            return hs_parse_error(parser, HTTP_ERR_BAD_REQUEST);
+          }
+          parser->header_count++;
           http_token_t token;
           token.index = parser->token_start_index;
           token.type = HTTP_HEADER_VALUE;
           token.len = parser->len;
           return token;
-        } else if (
-          HTTP_FLAG_CHECK(parser->flags, HS_PF_CONTENT_LENGTH) &&
-          parser->content_length != HS_PAYLOAD_TOO_LARGE
-        ) {
+        } else if (HTTP_FLAG_CHECK(parser->flags, HS_PF_CONTENT_LENGTH)) {
           int64_t new_content_length = parser->content_length * 10l;
           new_content_length += c - '0';
-          if (new_content_length > INT_MAX) {
-            parser->content_length = HS_PAYLOAD_TOO_LARGE;
+          if (new_content_length > HTTP_MAX_CONTENT_LENGTH) {
+            return hs_parse_error(parser, HTTP_ERR_PAYLOAD_TOO_LARGE);
           } else {
             parser->content_length = (int)new_content_length;
           }
@@ -714,6 +749,9 @@ http_token_t http_parse(http_parser_t* parser, char* input, int n) {
           parser->state = HTTP_HEADER_KEY;
         }
         break;
+    }
+    if (parser->len >= HTTP_MAX_TOKEN_LENGTH && parser->state != HTTP_BODY) {
+      return hs_parse_error(parser, HTTP_ERR_BAD_REQUEST);
     }
   }
   http_token_t token = { 0, 0, 0 };
@@ -857,6 +895,7 @@ void hs_bind_localhost(int s, struct sockaddr_in* addr, int port) {
 
 int hs_read_client_socket(http_request_t* session) {
   if (!session->buf) {
+    session->server->memused += HTTP_REQUEST_BUF_SIZE;
     session->buf = (char*)calloc(1, HTTP_REQUEST_BUF_SIZE);
     assert(session->buf != NULL);
     session->capacity = HTTP_REQUEST_BUF_SIZE;
@@ -871,7 +910,9 @@ int hs_read_client_socket(http_request_t* session) {
     );
     if (bytes > 0) session->bytes += bytes;
     if (session->bytes == session->capacity) {
+      session->server->memused -= session->capacity;
       session->capacity *= 2;
+      session->server->memused += session->capacity;
       session->buf = (char*)realloc(session->buf, session->capacity);
       assert(session->buf != NULL);
     }
@@ -882,16 +923,17 @@ int hs_read_client_socket(http_request_t* session) {
 int hs_write_client_socket(http_request_t* session) {
   int bytes = write(
     session->socket,
-    session->buf + session->bytes,
-    session->capacity - session->bytes
+    session->buf + session->written,
+    session->bytes - session->written
   );
-  if (bytes > 0) session->bytes += bytes;
+  if (bytes > 0) session->written += bytes;
   return errno == EPIPE ? 0 : 1;
 }
 
 void hs_free_buffer(http_request_t* session) {
   if (session->buf) {
     free(session->buf);
+    session->server->memused -= session->capacity;
     session->buf = NULL;
     free(session->tokens.buf);
     session->tokens.buf = NULL;
@@ -916,6 +958,7 @@ void hs_init_session(http_request_t* session) {
   session->flags |= HTTP_AUTOMATIC;
   session->parser = (http_parser_t){ };
   session->bytes = 0;
+  session->written = 0;
   session->buf = NULL;
   session->token.len = 0;
   session->token.index = 0;
@@ -949,11 +992,9 @@ void hs_reset_timeout(http_request_t* request, int time) {
   request->timeout = time;
 }
 
-void hs_exec_response_handler(http_request_t* request, void (*handler)(http_request_t*));
-
 void hs_write_response(http_request_t* request) {
   if (!hs_write_client_socket(request)) { return hs_end_session(request); }
-  if (request->bytes != request->capacity) {
+  if (request->written != request->bytes) {
     // All bytes of the body were not written and we need to wait until the
     // socket is writable again to complete the write
     hs_add_write_event(request);
@@ -1034,16 +1075,21 @@ void http_session(http_request_t* request) {
     case HTTP_SESSION_INIT:
       hs_init_session(request);
       request->state = HTTP_SESSION_READ_HEADERS;
+      if (request->server->memused > HTTP_MAX_TOTAL_EST_MEM_USAGE) {
+        return hs_error_response(request, 503, "Service Unavailable");
+      }
       // fallthrough
     case HTTP_SESSION_READ_HEADERS:
       if (!hs_read_client_socket(request)) { return hs_end_session(request); }
       hs_reset_timeout(request, HTTP_REQUEST_TIMEOUT);
       hs_parse_tokens(request);
-      if (
-        !hs_parsing_headers(request) &&
-        request->parser.content_length == HS_PAYLOAD_TOO_LARGE
-      ) {
-        return hs_error_response(request, 413, "Payload Too Large");
+      if (request->token.type == HTTP_PARSE_ERROR) {
+        switch (request->token.index) {
+          case HTTP_ERR_BAD_REQUEST:
+            return hs_error_response(request, 400, "Bad Request");
+          case HTTP_ERR_PAYLOAD_TOO_LARGE:
+            return hs_error_response(request, 413, "Payload Too Large");
+        }
       } else if (hs_reading_body(request)) {
         // The full request body has not been ready. Need to wait for more IO.
         request->state = HTTP_SESSION_READ_BODY;
@@ -1116,6 +1162,7 @@ http_server_t* http_server_init(int port, void (*handler)(http_request_t*)) {
   http_server_t* serv = (http_server_t*)malloc(sizeof(http_server_t));
   assert(serv != NULL);
   serv->port = port;
+  serv->memused = 0;
   serv->handler = hs_server_listen_cb;
   hs_server_init(serv);
   hs_generate_date_time(&serv->date);
@@ -1150,6 +1197,7 @@ int http_server_loop(http_server_t* server) {
 
 http_string_t http_get_token_string(http_request_t* request, int token_type) {
   http_string_t str = { 0, 0 };
+  if (request->tokens.buf == NULL) return str;
   for (int i = 0; i < request->tokens.size; i++) {
     http_token_t token = request->tokens.buf[i];
     if (token.type == token_type) {
@@ -1161,7 +1209,7 @@ http_string_t http_get_token_string(http_request_t* request, int token_type) {
   return str;
 }
 
-int case_insensitive_cmp(char const * a, char const * b, int len) {
+int hs_case_insensitive_cmp(char const * a, char const * b, int len) {
   for (int i = 0; i < len; i++) {
     char c1 = a[i] >= 'A' && a[i] <= 'Z' ? a[i] + 32 : a[i];
     char c2 = b[i] >= 'A' && b[i] <= 'Z' ? b[i] + 32 : b[i];
@@ -1182,7 +1230,7 @@ http_string_t http_request_body(http_request_t* request) {
   return http_get_token_string(request, HTTP_BODY);
 }
 
-int assign_iteration_headers(
+int hs_assign_iteration_headers(
   http_request_t* request,
   http_string_t* key,
   http_string_t* val,
@@ -1213,13 +1261,13 @@ int http_request_iterate_headers(
     for ( ; *iter < request->tokens.size; (*iter)++) {
       http_token_t token = request->tokens.buf[*iter];
       if (token.type == HTTP_HEADER_KEY) {
-        return assign_iteration_headers(request, key, val, iter);
+        return hs_assign_iteration_headers(request, key, val, iter);
       }
     }
     return 0;
   } else {
     (*iter)++;
-    return assign_iteration_headers(request, key, val, iter);
+    return hs_assign_iteration_headers(request, key, val, iter);
   }
 }
 
@@ -1228,7 +1276,7 @@ http_string_t http_request_header(http_request_t* request, char const * key) {
   for (int i = 0; i < request->tokens.size; i++) {
     http_token_t token = request->tokens.buf[i];
     if (token.type == HTTP_HEADER_KEY && token.len == len) {
-      if (case_insensitive_cmp(&request->buf[token.index], key, len)) {
+      if (hs_case_insensitive_cmp(&request->buf[token.index], key, len)) {
         token = request->tokens.buf[i + 1];
         return (http_string_t) {
           .buf = &request->buf[token.index],
@@ -1252,12 +1300,13 @@ void http_request_set_userdata(http_request_t* request, void* data) {
   request->data = data;
 }
 
-void auto_detect_keep_alive(http_request_t* request) {
+void hs_auto_detect_keep_alive(http_request_t* request) {
   http_string_t str = http_get_token_string(request, HTTP_VERSION);
+  if (str.buf == NULL) return;
   int version = str.buf[str.len - 1] == '1';
   str = http_request_header(request, "Connection");
   if (
-    (str.len == 5 && case_insensitive_cmp(str.buf, "close", 5)) ||
+    (str.len == 5 && hs_case_insensitive_cmp(str.buf, "close", 5)) ||
     (str.len == 0 && version == HTTP_1_0)
   ) {
     HTTP_FLAG_CLEAR(request->flags, HTTP_KEEP_ALIVE);
@@ -1315,18 +1364,23 @@ typedef struct {
   char* buf;
   int capacity;
   int size;
+  long* memused;
 } grwprintf_t;
 
-void grwprintf_init(grwprintf_t* ctx, int capacity) {
+void grwprintf_init(grwprintf_t* ctx, int capacity, long* memused) {
+  ctx->memused = memused;
   ctx->size = 0;
   ctx->buf = (char*)malloc(capacity);
+  *ctx->memused += capacity;
   assert(ctx->buf != NULL);
   ctx->capacity = capacity;
 }
 
 void grwmemcpy(grwprintf_t* ctx, char const * src, int size) {
   if (ctx->size + size > ctx->capacity) {
+    *ctx->memused -= ctx->capacity;
     ctx->capacity = ctx->size + size;
+    *ctx->memused += ctx->capacity;
     ctx->buf = (char*)realloc(ctx->buf, ctx->capacity);
     assert(ctx->buf != NULL);
   }
@@ -1340,7 +1394,9 @@ void grwprintf(grwprintf_t* ctx, char const * fmt, ...) {
 
   int bytes = vsnprintf(ctx->buf + ctx->size, ctx->capacity - ctx->size, fmt, args);
   if (bytes + ctx->size > ctx->capacity) {
+    *ctx->memused -= ctx->capacity;
     while (bytes + ctx->size > ctx->capacity) ctx->capacity *= 2;
+    *ctx->memused += ctx->capacity;
     ctx->buf = (char*)realloc(ctx->buf, ctx->capacity);
     assert(ctx->buf != NULL);
     bytes += vsnprintf(ctx->buf + ctx->size, ctx->capacity - ctx->size, fmt, args);
@@ -1372,7 +1428,7 @@ void http_respond_headers(
   grwprintf_t* printctx
 ) {
   if (HTTP_FLAG_CHECK(request->flags, HTTP_AUTOMATIC)) {
-    auto_detect_keep_alive(request);
+    hs_auto_detect_keep_alive(request);
   }
   if (HTTP_FLAG_CHECK(request->flags, HTTP_KEEP_ALIVE)) {
     http_response_header(response, "Connection", "keep-alive");
@@ -1396,8 +1452,9 @@ void http_end_response(http_request_t* request, http_response_t* response, grwpr
   hs_free_buffer(request);
   free(response);
   request->buf = printctx->buf;
-  request->bytes = 0;
-  request->capacity = printctx->size;
+  request->written = 0;
+  request->bytes = printctx->size;
+  request->capacity = printctx->capacity;
   request->state = HTTP_SESSION_WRITE;
   // Signal that the response is ready for writing.
   HTTP_FLAG_SET(request->flags, HTTP_RESPONSE_READY);
@@ -1410,7 +1467,7 @@ void http_end_response(http_request_t* request, http_response_t* response, grwpr
 
 void http_respond(http_request_t* request, http_response_t* response) {
   grwprintf_t printctx;
-  grwprintf_init(&printctx, HTTP_RESPONSE_BUF_SIZE);
+  grwprintf_init(&printctx, HTTP_RESPONSE_BUF_SIZE, &request->server->memused);
   http_respond_headers(request, response, &printctx);
   if (response->body) {
     grwmemcpy(&printctx, response->body, response->content_length);
@@ -1424,7 +1481,7 @@ void http_respond_chunk(
   void (*cb)(http_request_t*)
 ) {
   grwprintf_t printctx;
-  grwprintf_init(&printctx, HTTP_RESPONSE_BUF_SIZE);
+  grwprintf_init(&printctx, HTTP_RESPONSE_BUF_SIZE, &request->server->memused);
   if (!HTTP_FLAG_CHECK(request->flags, HTTP_CHUNKED_RESPONSE)) {
     HTTP_FLAG_SET(request->flags, HTTP_CHUNKED_RESPONSE);
     http_response_header(response, "Transfer-Encoding", "chunked");
@@ -1439,7 +1496,7 @@ void http_respond_chunk(
 
 void http_respond_chunk_end(http_request_t* request, http_response_t* response) {
   grwprintf_t printctx;
-  grwprintf_init(&printctx, HTTP_RESPONSE_BUF_SIZE);
+  grwprintf_init(&printctx, HTTP_RESPONSE_BUF_SIZE, &request->server->memused);
   grwprintf(&printctx, "0\r\n");
   http_buffer_headers(request, response, &printctx);
   grwprintf(&printctx, "\r\n");
