@@ -497,11 +497,15 @@ void hs_add_write_event(struct http_request_s* request);
 
 void hs_exec_response_handler(http_request_t* request, void (*handler)(http_request_t*));
 
+#ifdef KQUEUE
+
+void hs_server_listen_cb(struct kevent* ev);
+void hs_session_io_cb(struct kevent* ev);
+
+#else
+
 void hs_server_listen_cb(struct epoll_event* ev);
 void hs_session_io_cb(struct epoll_event* ev);
-
-#ifdef EPOLL
-
 void hs_server_timer_cb(struct epoll_event* ev);
 void hs_request_timer_cb(struct epoll_event* ev);
 
