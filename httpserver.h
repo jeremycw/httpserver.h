@@ -385,18 +385,20 @@ typedef struct http_ev_cb_s {
 typedef struct {
   char* buf;
   int64_t total_bytes;
-  int capacity;
-  int length;
-  int index;
-  int anchor;
+  int32_t capacity;
+  int32_t length;
+  int32_t index;
+  int32_t anchor;
   http_token_t token;
   uint8_t flags;
 } hs_stream_t;
 
 typedef struct {
   int64_t content_length;
-  int match_index;
-  int inject_token;
+  int64_t body_consumed;
+  int32_t match_index;
+  int32_t inject_token;
+  int16_t header_count;
   int8_t state;
   uint8_t flags;
 } http_parser_t;
@@ -429,7 +431,7 @@ typedef struct http_server_s {
   epoll_cb_t handler;
   epoll_cb_t timer_handler;
 #endif
-  long memused;
+  int64_t memused;
   int socket;
   int port;
   int loop;
@@ -641,9 +643,9 @@ static int const hs_token_start_states[] = {
 
 // *** input stream ***
 
-int hs_stream_read_socket(hs_stream_t* stream, int socket) {
+int hs_stream_read_socket(hs_stream_t* stream, int socket, int64_t* memused) {
   if (!stream->buf) {
-    //stream->server->memused += HTTP_REQUEST_BUF_SIZE;
+    *memused += HTTP_REQUEST_BUF_SIZE;
     stream->buf = (char*)calloc(1, HTTP_REQUEST_BUF_SIZE);
     assert(stream->buf != NULL);
     stream->capacity = HTTP_REQUEST_BUF_SIZE;
@@ -663,12 +665,12 @@ int hs_stream_read_socket(hs_stream_t* stream, int socket) {
       stream->length == stream->capacity &&
       stream->capacity != HTTP_MAX_REQUEST_BUF_SIZE
     ) {
-      //stream->server->memused -= stream->capacity;
+      *memused -= stream->capacity;
       stream->capacity *= 2;
       if (stream->capacity > HTTP_MAX_REQUEST_BUF_SIZE) {
         stream->capacity = HTTP_MAX_REQUEST_BUF_SIZE;
       }
-      //stream->server->memused += stream->capacity;
+      *memused += stream->capacity;
       stream->buf = (char*)realloc(stream->buf, stream->capacity);
       assert(stream->buf != NULL);
     }
@@ -809,14 +811,27 @@ http_token_t hs_transition_action(
   if (from != to) {
     int type = hs_token_start_states[to];
     if (type != HS_TOK_NONE) hs_stream_begin_token(stream, type);
-    if (to == TE) HTTP_FLAG_SET(parser->flags, HS_PF_CHUNKED);
-    if (to == BD && !hs_stream_can_contain(stream, parser->content_length)) {
-      parser->inject_token = HS_TOK_BODY_STREAM;
+    switch (to) {
+      case HK:
+        parser->header_count++;
+        if (parser->header_count > HTTP_MAX_HEADER_COUNT) {
+          emitted.type = HS_TOK_ERROR;
+        }
+        break;
+      case TE:
+        HTTP_FLAG_SET(parser->flags, HS_PF_CHUNKED);
+        break;
+      case BD:
+        if (!hs_stream_can_contain(stream, parser->content_length)) {
+          parser->inject_token = HS_TOK_BODY_STREAM;
+        }
+        break;
     }
     parser->match_index = 0;
   }
   char low, m = '\0';
   int in_bounds = 0;
+  int body_left = 0;
   // generic to
   switch (to) {
     case ST:
@@ -830,8 +845,10 @@ http_token_t hs_transition_action(
       emitted = hs_stream_emit(stream);
       break;
     case HN:
-      if (parser->content_length == 0) emitted.type = HS_TOK_BODY;
-      parser->inject_token = HS_TOK_REQ_END;
+      if (parser->content_length == 0 && !HTTP_FLAG_CHECK(parser->flags, HS_PF_CHUNKED)) {
+        emitted.type = HS_TOK_BODY;
+        parser->inject_token = HS_TOK_REQ_END;
+      }
       break;
     case HK:
       HS_MATCH("transfer-encoding", HS_PF_IN_TRANSFER_ENC)
@@ -870,22 +887,24 @@ http_token_t hs_transition_action(
       }
       break;
     case BD:
-      if (hs_stream_jump(stream, parser->content_length)) {
+      body_left = parser->content_length - parser->body_consumed;
+      if (hs_stream_jump(stream, body_left)) {
         emitted = hs_stream_emit(stream);
         parser->state = ST;
         parser->inject_token = HS_TOK_REQ_END;
         parser->content_length = 0;
+        parser->body_consumed = 0;
       } else if (hs_stream_is_maxcap(stream)) {
         hs_stream_begin_token(stream, HS_TOK_CHUNK_BODY);
-        hs_stream_jumpall(stream);
+        parser->body_consumed += hs_stream_jumpall(stream);
         emitted = hs_stream_emit(stream);
         hs_stream_shift(stream);
       } else {
-        hs_stream_jumpall(stream);
+        parser->body_consumed += hs_stream_jumpall(stream);
       }
       break;
     case BR:
-      // bad request
+      emitted.type = HS_TOK_ERROR;
       break;
   }
   return emitted;
@@ -902,7 +921,7 @@ http_token_t http_parse(http_parser_t* parser, hs_stream_t* stream) {
   http_token_t token = {0};
   if (hs_inject_token(parser, &token)) return token;
   while (hs_stream_next(stream, &c)) {
-    int type = hs_ctype[(int)c];
+    int type = c < 0 ? HS_ETC : hs_ctype[(int)c];
     int to = hs_transitions[parser->state * HS_CHAR_TYPE_LEN + type];
     to = hs_augment_transition(to, &parser->flags);
     int from = parser->state;
@@ -957,7 +976,7 @@ int hs_write_client_socket(http_request_t* session) {
 void hs_free_buffer(http_request_t* session) {
   if (session->stream.buf) {
     free(session->stream.buf);
-    //session->server->memused -= session->stream.capacity;
+    session->server->memused -= session->stream.capacity;
     session->stream.buf = NULL;
   }
 }
@@ -1032,7 +1051,7 @@ void hs_read_and_parse_tokens(http_request_t* request) {
   request->state = HTTP_SESSION_READ;
   http_token_t token = {0};
   hs_reset_timeout(request, HTTP_REQUEST_TIMEOUT);
-  int rc = hs_stream_read_socket(&request->stream, request->socket);
+  int rc = hs_stream_read_socket(&request->stream, request->socket, &request->server->memused);
   //printf("rc: %d\n", rc);
   do {
     token = http_parse(&request->parser, &request->stream);
@@ -1054,7 +1073,7 @@ void hs_process_tokens(http_request_t* request) {
       return hs_end_session(request);
     } else if (token.type == HS_TOK_ERROR) {
       hs_error_response(request, 400, "Bad Request");
-    } else if (token.type == HS_TOK_BODY) {
+    } else if (token.type == HS_TOK_BODY || token.type == HS_TOK_BODY_STREAM) {
       //printf("nop state set\n");
       request->state = HTTP_SESSION_NOP;
       request->server->request_handler(request);
@@ -1095,6 +1114,7 @@ void http_request_read_chunk(
 // This is the heart of the request logic. This is the state machine that
 // controls what happens when an IO event is received.
 void http_session(http_request_t* request) {
+  //printf("io clabback!\n");
   switch (request->state) {
     case HTTP_SESSION_INIT:
       hs_init_session(request);
@@ -1104,7 +1124,6 @@ void http_session(http_request_t* request) {
       }
       // fallthrough
     case HTTP_SESSION_READ:
-      //printf("io clabback!\n");
       hs_read_and_parse_tokens(request);
       hs_process_tokens(request);
       break;
@@ -1351,23 +1370,23 @@ typedef struct {
   char* buf;
   int capacity;
   int size;
-  long* memused;
+  int64_t* memused;
 } grwprintf_t;
 
-void grwprintf_init(grwprintf_t* ctx, int capacity, long* memused) {
+void grwprintf_init(grwprintf_t* ctx, int capacity, int64_t* memused) {
   ctx->memused = memused;
   ctx->size = 0;
   ctx->buf = (char*)malloc(capacity);
-  //*ctx->memused += capacity;
+  *ctx->memused += capacity;
   assert(ctx->buf != NULL);
   ctx->capacity = capacity;
 }
 
 void grwmemcpy(grwprintf_t* ctx, char const * src, int size) {
   if (ctx->size + size > ctx->capacity) {
-    //*ctx->memused -= ctx->capacity;
+    *ctx->memused -= ctx->capacity;
     ctx->capacity = ctx->size + size;
-    //*ctx->memused += ctx->capacity;
+    *ctx->memused += ctx->capacity;
     ctx->buf = (char*)realloc(ctx->buf, ctx->capacity);
     assert(ctx->buf != NULL);
   }
@@ -1381,9 +1400,9 @@ void grwprintf(grwprintf_t* ctx, char const * fmt, ...) {
 
   int bytes = vsnprintf(ctx->buf + ctx->size, ctx->capacity - ctx->size, fmt, args);
   if (bytes + ctx->size > ctx->capacity) {
-    //*ctx->memused -= ctx->capacity;
+    *ctx->memused -= ctx->capacity;
     while (bytes + ctx->size > ctx->capacity) ctx->capacity *= 2;
-    //*ctx->memused += ctx->capacity;
+    *ctx->memused += ctx->capacity;
     ctx->buf = (char*)realloc(ctx->buf, ctx->capacity);
     assert(ctx->buf != NULL);
     bytes += vsnprintf(ctx->buf + ctx->size, ctx->capacity - ctx->size, fmt, args);
