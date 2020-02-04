@@ -397,10 +397,9 @@ typedef struct {
   int64_t content_length;
   int64_t body_consumed;
   int32_t match_index;
-  int32_t inject_token;
   int16_t header_count;
   int8_t state;
-  uint8_t flags;
+  int8_t meta;
 } http_parser_t;
 
 typedef struct http_request_s {
@@ -466,7 +465,7 @@ enum hs_token {
 };
 
 enum hs_state {
-  ST, MT, MS, TR, TS, VN, RR, RN, HK, HS, HV, CL, TE, HR, HE,
+  ST, MT, MS, TR, TS, VN, RR, RN, HK, HS, HV, HR, HE,
   ER, HN, BD, CS, CB, CE, CR, CN, CD, C1, C2, BR, HS_STATE_LEN
 };
 
@@ -474,6 +473,25 @@ enum hs_char_type {
   HS_SPC,   HS_NL,  HS_CR,    HS_COLN,  HS_TAB,   HS_SCOLN,
   HS_DIGIT, HS_HEX, HS_ALPHA, HS_TCHAR, HS_VCHAR, HS_ETC,   HS_CHAR_TYPE_LEN
 };
+
+enum hs_meta_state {
+  M_WFK, M_ANY, M_MTE, M_MCL, M_CLV, M_MCK, M_SML, M_CHK, M_BIG, M_ZER, M_CSZ,
+  M_CBD, M_STR, M_BDY, M_LST, M_END, M_ERR
+};
+
+enum hs_meta_type {
+  HS_META_NOT_CONTENT_LEN, HS_META_NOT_TRANSFER_ENC, HS_META_END_KEY,
+  HS_META_END_VALUE,       HS_META_END_HEADERS,      HS_META_TYPE_LEN
+};
+
+#define HS_META_NOT_CHUNKED 0
+#define HS_META_LARGE_BODY 0
+#define HS_META_END_BODY 0
+#define HS_META_NON_ZERO 0
+#define HS_META_FINISH 0
+#define HS_META_END_CHK_SIZE 1
+#define HS_META_END_CHUNK 2
+#define HS_META_NEXT 0
 
 // prototypes
 
@@ -584,33 +602,57 @@ char const * hs_status_text[] = {
 };
 
 static int const hs_transitions[] = {
-//                spc \n  \r  :   \t  ;   0-9 a-fA-f g-zG-Z tchar vchar etc
-/* ST start */    BR, BR, BR, BR, BR, BR, BR, MT,    MT,    MT,   BR,   BR,
-/* MT method */   MS, BR, BR, BR, BR, BR, MT, MT,    MT,    MT,   BR,   BR,
-/* MS methodsp */ BR, BR, BR, BR, BR, BR, TR, TR,    TR,    TR,   TR,   BR,
-/* TR target */   TS, BR, BR, TR, BR, TR, TR, TR,    TR,    TR,   TR,   BR,
-/* TS targetsp */ BR, BR, BR, BR, BR, BR, VN, VN,    VN,    VN,   VN,   BR,
-/* VN version */  BR, BR, RR, BR, BR, BR, VN, VN,    VN,    VN,   VN,   BR,
-/* RR rl \r */    BR, RN, BR, BR, BR, BR, BR, BR,    BR,    BR,   BR,   BR,
-/* RN rl \n */    BR, BR, BR, BR, BR, BR, HK, HK,    HK,    HK,   BR,   BR,
-/* HK headkey */  BR, BR, BR, HS, BR, BR, HK, HK,    HK,    HK,   BR,   BR,
-/* HS headspc */  HS, HS, HS, HV, HS, HV, HV, HV,    HV,    HV,   HV,   BR,
-/* HV headval */  HV, BR, HR, HV, HV, HV, HV, HV,    HV,    HV,   HV,   BR,
-/* CL clval */    BR, BR, HR, BR, BR, BR, CL, BR,    BR,    BR,   BR,   BR,
-/* TE teval */    TE, BR, HR, TE, TE, TE, TE, TE,    TE,    TE,   TE,   BR,
-/* HR head\r */   BR, HE, BR, BR, BR, BR, BR, BR,    BR,    BR,   BR,   BR,
-/* HE head\n */   BR, BR, ER, BR, BR, BR, HK, HK,    HK,    HK,   BR,   BR,
-/* ER hend\r */   BR, HN, BR, BR, BR, BR, BR, BR,    BR,    BR,   BR,   BR,
-/* HN hend\n */   BD, BD, BD, BD, BD, BD, BD, BD,    BD,    BD,   BD,   BD,
-/* BD body */     BD, BD, BD, BD, BD, BD, BD, BD,    BD,    BD,   BD,   BD,
-/* CS chksz */    BR, BR, CR, BR, BR, CE, CS, CS,    BR,    BR,   BR,   BR,
-/* CB chkbd */    CB, CB, CB, CB, CB, CB, CB, CB,    CB,    CB,   CB,   CB,
-/* CE chkext */   BR, BR, CR, CE, CE, CE, CE, CE,    CE,    CE,   CE,   BR,
-/* CR chksz\r */  BR, CN, BR, BR, BR, BR, BR, BR,    BR,    BR,   BR,   BR,
-/* CN chksz\n */  CB, CB, CB, CB, CB, CB, CB, CB,    CB,    CB,   CB,   CB,
-/* CD chkend */   BR, BR, C1, BR, BR, BR, BR, BR,    BR,    BR,   BR,   BR,
-/* C1 chkend\r */ BR, C2, BR, BR, BR, BR, BR, BR,    BR,    BR,   BR,   BR,
-/* C2 chkend\n */ BR, BR, BR, BR, BR, BR, CS, CS,    BR,    BR,   BR,   BR
+//                                            A-Z G-Z
+//                spc \n  \r  :   \t  ;   0-9 a-f g-z tch vch etc
+/* ST start */    BR, BR, BR, BR, BR, BR, BR, MT, MT, MT, BR, BR,
+/* MT method */   MS, BR, BR, BR, BR, BR, MT, MT, MT, MT, BR, BR,
+/* MS methodsp */ BR, BR, BR, BR, BR, BR, TR, TR, TR, TR, TR, BR,
+/* TR target */   TS, BR, BR, TR, BR, TR, TR, TR, TR, TR, TR, BR,
+/* TS targetsp */ BR, BR, BR, BR, BR, BR, VN, VN, VN, VN, VN, BR,
+/* VN version */  BR, BR, RR, BR, BR, BR, VN, VN, VN, VN, VN, BR,
+/* RR rl \r */    BR, RN, BR, BR, BR, BR, BR, BR, BR, BR, BR, BR,
+/* RN rl \n */    BR, BR, BR, BR, BR, BR, HK, HK, HK, HK, BR, BR,
+/* HK headkey */  BR, BR, BR, HS, BR, BR, HK, HK, HK, HK, BR, BR,
+/* HS headspc */  HS, HS, HS, HV, HS, HV, HV, HV, HV, HV, HV, BR,
+/* HV headval */  HV, BR, HR, HV, HV, HV, HV, HV, HV, HV, HV, BR,
+/* HR head\r */   BR, HE, BR, BR, BR, BR, BR, BR, BR, BR, BR, BR,
+/* HE head\n */   BR, BR, ER, BR, BR, BR, HK, HK, HK, HK, BR, BR,
+/* ER hend\r */   BR, HN, BR, BR, BR, BR, BR, BR, BR, BR, BR, BR,
+/* HN hend\n */   BD, BD, BD, BD, BD, BD, BD, BD, BD, BD, BD, BD,
+/* BD body */     BD, BD, BD, BD, BD, BD, BD, BD, BD, BD, BD, BD,
+/* CS chksz */    BR, BR, CR, BR, BR, CE, CS, CS, BR, BR, BR, BR,
+/* CB chkbd */    CB, CB, CB, CB, CB, CB, CB, CB, CB, CB, CB, CB,
+/* CE chkext */   BR, BR, CR, CE, CE, CE, CE, CE, CE, CE, CE, BR,
+/* CR chksz\r */  BR, CN, BR, BR, BR, BR, BR, BR, BR, BR, BR, BR,
+/* CN chksz\n */  CB, CB, CB, CB, CB, CB, CB, CB, CB, CB, CB, CB,
+/* CD chkend */   BR, BR, C1, BR, BR, BR, BR, BR, BR, BR, BR, BR,
+/* C1 chkend\r */ BR, C2, BR, BR, BR, BR, BR, BR, BR, BR, BR, BR,
+/* C2 chkend\n */ BR, BR, BR, BR, BR, BR, CS, CS, BR, BR, BR, BR
+};
+
+static int const hs_meta_transitions[] = {
+//                 not cl not te endkey endval end h
+/* WFK wait */     M_WFK, M_WFK, M_WFK, M_ANY, M_END,
+/* ANY matchkey */ M_MTE, M_MCL, M_WFK, M_ERR, M_END,
+/* MTE matchte */  M_MTE, M_WFK, M_MCK, M_ERR, M_ERR,
+/* MCL matchcl */  M_WFK, M_MCL, M_CLV, M_ERR, M_ERR,
+/* CLV clvalue */  M_ERR, M_ERR, M_ERR, M_SML, M_ERR,
+//                 no chk
+/* MCK matchchk */ M_WFK, M_ERR, M_ERR, M_CHK, M_ERR,
+//                 toobig
+/* SML smallbdy */ M_BIG, M_SML, M_SML, M_SML, M_BDY,
+/* CHK chunkbdy */ M_CHK, M_CHK, M_CHK, M_CHK, M_ZER,
+/* BIG bigbody */  M_BIG, M_BIG, M_BIG, M_BIG, M_STR,
+//                 nozer  endsz
+/* ZER zerochk */  M_CSZ, M_LST, M_ERR, M_ERR, M_ERR,
+/* CSZ chksize */  M_CSZ, M_CBD, M_ERR, M_ERR, M_ERR,
+//                 endbdy        endchk
+/* CBD readchk */  M_CBD, M_CBD, M_ZER, M_ERR, M_ERR,
+/* STR readstr */  M_END, M_ERR, M_ERR, M_ERR, M_ERR,
+/* BDY readbody */ M_END, M_ERR, M_ERR, M_ERR, M_ERR,
+/* LST lastchk */  M_LST, M_END, M_END, M_ERR, M_ERR,
+//                 fin
+/* END reqend */   M_END, M_WFK, M_ERR, M_ERR, M_ERR
 };
 
 static int const hs_ctype[] = {
@@ -636,9 +678,12 @@ static int const hs_ctype[] = {
 };
 
 static int const hs_token_start_states[] = {
+//ST MT             MS TR             TS VN              RR RN HK
   0, HS_TOK_METHOD, 0, HS_TOK_TARGET, 0, HS_TOK_VERSION, 0, 0, HS_TOK_HEADER_KEY,
-  0, HS_TOK_HEADER_VAL, HS_TOK_HEADER_VAL, HS_TOK_HEADER_VAL, 0, 0, 0, 0,
-  HS_TOK_BODY, 0, HS_TOK_CHUNK_BODY, 0, 0, 0, 0, 0, 0, 0, 0
+//HS HV                 HR HE ER HN BD           CS CB                 CE CR CN
+  0, HS_TOK_HEADER_VAL, 0, 0, 0, 0, HS_TOK_BODY, 0, HS_TOK_CHUNK_BODY, 0, 0, 0,
+//CD C1 C2
+  0, 0, 0,
 };
 
 // *** input stream ***
@@ -700,11 +745,11 @@ void hs_stream_begin_token(hs_stream_t* stream, int token_type) {
 }
 
 int hs_stream_jump(hs_stream_t* stream, int offset) {
+  HTTP_FLAG_SET(stream->flags, HS_SF_CONSUMED);
   if (stream->index + offset > stream->length) return 0;
   stream->index += offset;
   int new_len = stream->token.len + offset;
   stream->token.len = stream->token.type == 0 ? 0 : new_len;
-  HTTP_FLAG_SET(stream->flags, HS_SF_CONSUMED);
   return 1;
 }
 
@@ -728,12 +773,8 @@ http_token_t hs_stream_emit(hs_stream_t* stream) {
   return token;
 }
 
-int hs_stream_is_maxcap(hs_stream_t* stream) {
-  return stream->length == HTTP_MAX_REQUEST_BUF_SIZE;
-}
-
 int hs_stream_can_contain(hs_stream_t* stream, int64_t size) {
-  return HTTP_MAX_REQUEST_BUF_SIZE - stream->anchor >= size;
+  return HTTP_MAX_REQUEST_BUF_SIZE - stream->index + 1 >= size;
 }
 
 void hs_stream_shift(hs_stream_t* stream) {
@@ -751,37 +792,25 @@ void hs_stream_shift(hs_stream_t* stream) {
 
 // *** http parser ***
 
-int hs_augment_transition(int to, uint8_t* flags) {
-  switch (to) {
-    case C2:
-      if (*flags & HS_PF_CKEND) {
-        HTTP_FLAG_CLEAR(*flags, HS_PF_CKEND);
-        return ST;
-      }
-      break;
-    case BD:
-      if (*flags & HS_PF_CHUNKED) {
-        HTTP_FLAG_CLEAR(*flags, HS_PF_CHUNKED);
-        return CS;
-      }
-      break;
-    case HV:
-      if (*flags & HS_PF_IN_CONTENT_LEN) {
-        HTTP_FLAG_CLEAR(*flags, HS_PF_IN_CONTENT_LEN);
-        return CL;
-      } else if (*flags & HS_PF_IN_TRANSFER_ENC) {
-        HTTP_FLAG_CLEAR(*flags, HS_PF_IN_TRANSFER_ENC);
-        return TE;
-      }
+char const* mstate[] = {
+  "M_WFK", "M_ANY", "M_MTE", "M_MCL", "M_CLV", "M_MCK", "M_SML", "M_CHK", "M_BIG",
+  "M_ZER", "M_CSZ", "M_CBD", "M_STR", "M_BDY", "M_LST", "M_END", "M_EMP", "M_ERR"
+};
+
+void hs_trigger_meta(http_parser_t* parser, int event) {
+  int to = hs_meta_transitions[parser->meta * HS_META_TYPE_LEN + event];
+  if (to == M_END) {
+    printf("end\n");
   }
-  return to;
+  printf("-> %s\n", mstate[to]);
+  parser->meta = to;
 }
 
-#define HS_MATCH(str, flag) \
+#define HS_MATCH(str, meta) \
   in_bounds = parser->match_index < (int)sizeof(str) - 1; \
   m = in_bounds ? str[parser->match_index] : m; \
   low = c >= 'A' && c <= 'Z' ? c + 32 : c; \
-  if (low != m) HTTP_FLAG_CLEAR(parser->flags, flag); \
+  if (low != m) hs_trigger_meta(parser, meta);
 
 http_token_t hs_transition_action(
   http_parser_t* parser,
@@ -791,80 +820,69 @@ http_token_t hs_transition_action(
   int8_t to
 ) {
   http_token_t emitted = {0};
-  switch (from) {
-    case RN:
-    case HE:
-      HTTP_FLAG_SET(parser->flags, HS_PF_IN_CONTENT_LEN);
-      HTTP_FLAG_SET(parser->flags, HS_PF_IN_TRANSFER_ENC);
-      break;
-    case HN:
-      hs_stream_anchor(stream);
-      break;
-    case C1:
-      HTTP_FLAG_SET(parser->flags, HS_PF_CKEND);
-      break;
-  }
-  if (from == HN && to == CS) {
-    HTTP_FLAG_SET(parser->flags, HS_PF_CKEND);
-    emitted.type = HS_TOK_BODY_STREAM;
-  }
+  if (from == HN) hs_stream_anchor(stream);
   if (from != to) {
     int type = hs_token_start_states[to];
+    // if body is streaming token type is CHUNK_BODY instead of BODY
+    type = type == HS_TOK_BODY && parser->meta == M_STR ? HS_TOK_CHUNK_BODY : type;
     if (type != HS_TOK_NONE) hs_stream_begin_token(stream, type);
-    switch (to) {
-      case HK:
-        parser->header_count++;
-        if (parser->header_count > HTTP_MAX_HEADER_COUNT) {
-          emitted.type = HS_TOK_ERROR;
-        }
-        break;
-      case TE:
-        HTTP_FLAG_SET(parser->flags, HS_PF_CHUNKED);
-        break;
-      case BD:
-        if (!hs_stream_can_contain(stream, parser->content_length)) {
-          parser->inject_token = HS_TOK_BODY_STREAM;
-        }
-        break;
+
+    if (from == CS) {
+      hs_trigger_meta(parser, HS_META_END_CHK_SIZE);
+    }
+    if (to == HK) {
+      parser->header_count++;
+      if (parser->header_count > HTTP_MAX_HEADER_COUNT) {
+        emitted.type = HS_TOK_ERROR;
+      }
+    } else if (to == HS) {
+      hs_trigger_meta(parser, HS_META_END_KEY);
+      emitted = hs_stream_emit(stream);
     }
     parser->match_index = 0;
   }
   char low, m = '\0';
   int in_bounds = 0;
   int body_left = 0;
-  // generic to
   switch (to) {
-    case ST:
-      emitted.type = HS_TOK_REQ_END;
-      break;
     case MS:
     case TS:
     case RR:
-    case HS:
-    case HR:
       emitted = hs_stream_emit(stream);
       break;
-    case HN:
-      if (parser->content_length == 0 && !HTTP_FLAG_CHECK(parser->flags, HS_PF_CHUNKED)) {
-        emitted.type = HS_TOK_BODY;
-        parser->inject_token = HS_TOK_REQ_END;
-      }
+    case HR:
+      hs_trigger_meta(parser, HS_META_END_VALUE);
+      emitted = hs_stream_emit(stream);
       break;
     case HK:
-      HS_MATCH("transfer-encoding", HS_PF_IN_TRANSFER_ENC)
-      HS_MATCH("content-length", HS_PF_IN_CONTENT_LEN)
+      HS_MATCH("transfer-encoding", HS_META_NOT_TRANSFER_ENC)
+      HS_MATCH("content-length", HS_META_NOT_CONTENT_LEN)
       parser->match_index++;
       break;
-    case TE:
-      HS_MATCH("chunked", HS_PF_CHUNKED)
-      parser->match_index++;
+    case HV:
+      if (parser->meta == M_MCK) {
+        HS_MATCH("chunked", HS_META_NOT_CHUNKED)
+        parser->match_index++;
+      } else if (parser->meta == M_CLV) {
+        parser->content_length *= 10;
+        parser->content_length += c - '0';
+      }
       break;
-    case CL:
-      parser->content_length *= 10;
-      parser->content_length += c - '0';
+    case HN:
+      if (parser->meta == M_SML && !hs_stream_can_contain(stream, parser->content_length)) {
+        hs_trigger_meta(parser, HS_META_LARGE_BODY);
+      }
+      if (parser->meta == M_BIG || parser->meta == M_CHK) {
+        emitted.type = HS_TOK_BODY_STREAM;
+      }
+      if (parser->meta == M_CHK) parser->state = CS;
+      hs_trigger_meta(parser, HS_META_END_HEADERS);
+      if (parser->meta == M_END) {
+        emitted.type = HS_TOK_BODY;
+      }
       break;
     case CS:
-      if (c != '0') HTTP_FLAG_CLEAR(parser->flags, HS_PF_CKEND);
+      if (c != '0') hs_trigger_meta(parser, HS_META_NON_ZERO);
       if (c >= 'A' && c <= 'F') {
         parser->content_length *= 0x10;
         parser->content_length += c - 55;
@@ -877,31 +895,23 @@ http_token_t hs_transition_action(
       }
       break;
     case CB:
-      if (hs_stream_jump(stream, parser->content_length)) {
-        emitted = hs_stream_emit(stream);
-        parser->state = CD;
-        parser->content_length = 0;
-      } else {
-        int bytes = hs_stream_jumpall(stream);
-        parser->content_length -= bytes;
-      }
-      break;
     case BD:
       body_left = parser->content_length - parser->body_consumed;
       if (hs_stream_jump(stream, body_left)) {
         emitted = hs_stream_emit(stream);
-        parser->state = ST;
-        parser->inject_token = HS_TOK_REQ_END;
+        hs_trigger_meta(parser, HS_META_END_BODY);
+        if (to == CB) parser->state = CD;
         parser->content_length = 0;
         parser->body_consumed = 0;
-      } else if (hs_stream_is_maxcap(stream)) {
-        hs_stream_begin_token(stream, HS_TOK_CHUNK_BODY);
-        parser->body_consumed += hs_stream_jumpall(stream);
-        emitted = hs_stream_emit(stream);
-        hs_stream_shift(stream);
       } else {
         parser->body_consumed += hs_stream_jumpall(stream);
+        if (parser->meta == M_STR) {
+          emitted = hs_stream_emit(stream);
+        }
       }
+      break;
+    case C2:
+      hs_trigger_meta(parser, HS_META_END_CHUNK);
       break;
     case BR:
       emitted.type = HS_TOK_ERROR;
@@ -910,30 +920,38 @@ http_token_t hs_transition_action(
   return emitted;
 }
 
-int hs_inject_token(http_parser_t* parser, http_token_t* token) {
-  token->type = parser->inject_token;
-  parser->inject_token = 0;
-  return token->type;
-}
+char const* pstate[] = {
+  "ST", "MT", "MS", "TR", "TS", "VN", "RR", "RN", "HK", "HS", "HV", "HR", "HE",
+  "ER", "HN", "BD", "CS", "CB", "CE", "CR", "CN", "CD", "C1", "C2", "BR", "HS_STATE_LEN"
+};
+
+#define HS_END_REQUEST_IF(condition) \
+  if (condition) { \
+    token.type = HS_TOK_REQ_END; \
+    parser->state = 0; \
+    parser->meta = 0; \
+    parser->header_count = 0; \
+    return token; \
+  }
 
 http_token_t http_parse(http_parser_t* parser, hs_stream_t* stream) {
   char c = 0;
   http_token_t token = {0};
-  if (hs_inject_token(parser, &token)) return token;
+  HS_END_REQUEST_IF(parser->meta == M_END)
   while (hs_stream_next(stream, &c)) {
     int type = c < 0 ? HS_ETC : hs_ctype[(int)c];
     int to = hs_transitions[parser->state * HS_CHAR_TYPE_LEN + type];
-    to = hs_augment_transition(to, &parser->flags);
+    printf("to: %s\n", pstate[to]);
     int from = parser->state;
     parser->state = to;
     http_token_t emitted = hs_transition_action(parser, stream, c, from, to);
     hs_stream_consume(stream);
     if (emitted.type != HS_TOK_NONE) return emitted;
   }
-  if (parser->state >= CS && parser->state <= C2) hs_stream_shift(stream); 
-  hs_inject_token(parser, &token);
+  HS_END_REQUEST_IF(parser->meta == M_END)
   return token;
 }
+
 // *** http server ***
 
 void http_token_dyn_push(http_token_dyn_t* dyn, http_token_t a) {
@@ -1043,7 +1061,7 @@ int hs_has_buffered_tokens(http_request_t* request) {
 char const* tokens[] = {
   "HS_TOK_NONE",        "HS_TOK_METHOD",     "HS_TOK_TARGET",     "HS_TOK_VERSION",
   "HS_TOK_HEADER_KEY",  "HS_TOK_HEADER_VAL", "HS_TOK_CHUNK_BODY", "HS_TOK_BODY",
-  "HS_TOK_BODY_STREAM", "HS_TOK_REQ_END",    "HS_TOK_EOF"
+  "HS_TOK_BODY_STREAM", "HS_TOK_REQ_END",    "HS_TOK_EOF",        "HS_TOK_ERROR"
 };
 
 void hs_read_and_parse_tokens(http_request_t* request) {
@@ -1055,7 +1073,7 @@ void hs_read_and_parse_tokens(http_request_t* request) {
   //printf("rc: %d\n", rc);
   do {
     token = http_parse(&request->parser, &request->stream);
-    //printf("EMITTED: %s, len: %d UNREAD: %d\n", tokens[token.type], token.len, request->stream.length - request->stream.index);
+    printf("EMITTED: %s, len: %d UNREAD: %d\n", tokens[token.type], token.len, request->stream.length - request->stream.index);
     if (token.type != HS_TOK_NONE) {
       http_token_dyn_push(&request->tokens, token);
     }
@@ -1068,7 +1086,7 @@ void hs_process_tokens(http_request_t* request) {
   while (request->i < request->tokens.size) {
     http_token_t token = request->tokens.buf[request->i];
     request->i++;
-    //printf("PROCESSING: %s, %.*s, UNREAD: %d\n", tokens[token.type], token.len, request->stream.buf + token.index, request->stream.length - request->stream.index);
+    printf("PROCESSING: %s, UNREAD: %d\n", tokens[token.type], request->stream.length - request->stream.index);
     if (token.type == HS_TOK_EOF) {
       return hs_end_session(request);
     } else if (token.type == HS_TOK_ERROR) {
