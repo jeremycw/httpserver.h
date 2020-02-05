@@ -63,7 +63,7 @@ cat connection-close.bench 1>&2
 
 echo "\nStress Test large body:"
 dd if=/dev/urandom of=test.dat bs=7388608 count=1 2> /dev/null
-ab -c 2 -n 4 -p test.dat http://127.0.0.1:8080/echo > large-file.bench
+ab -c 2 -n 10 -p test.dat http://127.0.0.1:8080/echo > large-file.bench
 cat large-file.bench | grep Complete
 cat large-file.bench | grep Non-2xx
 cat large-file.bench 1>&2
