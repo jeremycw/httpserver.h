@@ -476,19 +476,17 @@ enum hs_char_type {
 
 enum hs_meta_state {
   M_WFK, M_ANY, M_MTE, M_MCL, M_CLV, M_MCK, M_SML, M_CHK, M_BIG, M_ZER, M_CSZ,
-  M_CBD, M_STR, M_BDY, M_LST, M_END, M_ERR
+  M_CBD, M_LST, M_STR, M_SEN, M_BDY, M_END, M_ERR
 };
 
 enum hs_meta_type {
   HS_META_NOT_CONTENT_LEN, HS_META_NOT_TRANSFER_ENC, HS_META_END_KEY,
-  HS_META_END_VALUE,       HS_META_END_HEADERS,      HS_META_TYPE_LEN
+  HS_META_END_VALUE,       HS_META_END_HEADERS,      HS_META_LARGE_BODY,
+  HS_META_TYPE_LEN
 };
 
 #define HS_META_NOT_CHUNKED 0
-#define HS_META_LARGE_BODY 0
-#define HS_META_END_BODY 0
 #define HS_META_NON_ZERO 0
-#define HS_META_FINISH 0
 #define HS_META_END_CHK_SIZE 1
 #define HS_META_END_CHUNK 2
 #define HS_META_NEXT 0
@@ -631,28 +629,37 @@ static int const hs_transitions[] = {
 };
 
 static int const hs_meta_transitions[] = {
-//                 not cl not te endkey endval end h
-/* WFK wait */     M_WFK, M_WFK, M_WFK, M_ANY, M_END,
-/* ANY matchkey */ M_MTE, M_MCL, M_WFK, M_ERR, M_END,
-/* MTE matchte */  M_MTE, M_WFK, M_MCK, M_ERR, M_ERR,
-/* MCL matchcl */  M_WFK, M_MCL, M_CLV, M_ERR, M_ERR,
-/* CLV clvalue */  M_ERR, M_ERR, M_ERR, M_SML, M_ERR,
 //                 no chk
-/* MCK matchchk */ M_WFK, M_ERR, M_ERR, M_CHK, M_ERR,
-//                 toobig
-/* SML smallbdy */ M_BIG, M_SML, M_SML, M_SML, M_BDY,
-/* CHK chunkbdy */ M_CHK, M_CHK, M_CHK, M_CHK, M_ZER,
-/* BIG bigbody */  M_BIG, M_BIG, M_BIG, M_BIG, M_STR,
-//                 nozer  endsz
-/* ZER zerochk */  M_CSZ, M_LST, M_ERR, M_ERR, M_ERR,
-/* CSZ chksize */  M_CSZ, M_CBD, M_ERR, M_ERR, M_ERR,
-//                 endbdy        endchk
-/* CBD readchk */  M_CBD, M_CBD, M_ZER, M_ERR, M_ERR,
-/* STR readstr */  M_END, M_ERR, M_ERR, M_ERR, M_ERR,
-/* BDY readbody */ M_END, M_ERR, M_ERR, M_ERR, M_ERR,
-/* LST lastchk */  M_LST, M_END, M_END, M_ERR, M_ERR,
-//                 fin
-/* END reqend */   M_END, M_WFK, M_ERR, M_ERR, M_ERR
+//                 not cl not te endkey endval end h  toobig
+/* WFK wait */     M_WFK, M_WFK, M_WFK, M_ANY, M_END, M_ERR,
+/* ANY matchkey */ M_MTE, M_MCL, M_WFK, M_ERR, M_END, M_ERR,
+/* MTE matchte */  M_MTE, M_WFK, M_MCK, M_ERR, M_ERR, M_ERR,
+/* MCL matchcl */  M_WFK, M_MCL, M_CLV, M_ERR, M_ERR, M_ERR,
+/* CLV clvalue */  M_ERR, M_ERR, M_ERR, M_SML, M_ERR, M_ERR,
+/* MCK matchchk */ M_WFK, M_ERR, M_ERR, M_CHK, M_ERR, M_ERR,
+/* SML smallbdy */ M_SML, M_SML, M_SML, M_SML, M_BDY, M_BIG,
+/* CHK chunkbdy */ M_CHK, M_CHK, M_CHK, M_CHK, M_ZER, M_ERR,
+/* BIG bigbody */  M_BIG, M_BIG, M_BIG, M_BIG, M_STR, M_ERR,
+
+//                         *** chunked body ***
+
+//                 nonzer endsz  endchk
+/* ZER zerochk */  M_CSZ, M_LST, M_ERR, M_ERR, M_ERR, M_ERR,
+/* CSZ chksize */  M_CSZ, M_CBD, M_ERR, M_ERR, M_ERR, M_ERR,
+/* CBD readchk */  M_CBD, M_CBD, M_ZER, M_ERR, M_ERR, M_ERR,
+/* LST lastchk */  M_LST, M_END, M_END, M_ERR, M_ERR, M_ERR,
+
+//                         *** streamed body ***
+
+//                 next
+/* STR readstr */  M_SEN, M_ERR, M_ERR, M_ERR, M_ERR, M_ERR,
+/* SEN strend */   M_END, M_ERR, M_ERR, M_ERR, M_ERR, M_ERR,
+
+//                         *** small body ***
+
+//                 next
+/* BDY readbody */ M_END, M_ERR, M_ERR, M_ERR, M_ERR, M_ERR,
+/* END reqend */   M_WFK, M_ERR, M_ERR, M_ERR, M_ERR, M_ERR
 };
 
 static int const hs_ctype[] = {
@@ -794,14 +801,11 @@ void hs_stream_shift(hs_stream_t* stream) {
 
 char const* mstate[] = {
   "M_WFK", "M_ANY", "M_MTE", "M_MCL", "M_CLV", "M_MCK", "M_SML", "M_CHK", "M_BIG",
-  "M_ZER", "M_CSZ", "M_CBD", "M_STR", "M_BDY", "M_LST", "M_END", "M_EMP", "M_ERR"
+  "M_ZER", "M_CSZ", "M_CBD", "M_STR", "M_BDY", "M_LST", "M_SEN", "M_END", "M_ERR"
 };
 
 void hs_trigger_meta(http_parser_t* parser, int event) {
   int to = hs_meta_transitions[parser->meta * HS_META_TYPE_LEN + event];
-  if (to == M_END) {
-    printf("end\n");
-  }
   printf("-> %s\n", mstate[to]);
   parser->meta = to;
 }
@@ -823,13 +827,8 @@ http_token_t hs_transition_action(
   if (from == HN) hs_stream_anchor(stream);
   if (from != to) {
     int type = hs_token_start_states[to];
-    // if body is streaming token type is CHUNK_BODY instead of BODY
-    type = type == HS_TOK_BODY && parser->meta == M_STR ? HS_TOK_CHUNK_BODY : type;
     if (type != HS_TOK_NONE) hs_stream_begin_token(stream, type);
-
-    if (from == CS) {
-      hs_trigger_meta(parser, HS_META_END_CHK_SIZE);
-    }
+    if (from == CS) hs_trigger_meta(parser, HS_META_END_CHK_SIZE);
     if (to == HK) {
       parser->header_count++;
       if (parser->header_count > HTTP_MAX_HEADER_COUNT) {
@@ -896,10 +895,11 @@ http_token_t hs_transition_action(
       break;
     case CB:
     case BD:
+      if (parser->meta == M_STR) hs_stream_begin_token(stream, HS_TOK_CHUNK_BODY);
       body_left = parser->content_length - parser->body_consumed;
       if (hs_stream_jump(stream, body_left)) {
         emitted = hs_stream_emit(stream);
-        hs_trigger_meta(parser, HS_META_END_BODY);
+        hs_trigger_meta(parser, HS_META_NEXT);
         if (to == CB) parser->state = CD;
         parser->content_length = 0;
         parser->body_consumed = 0;
@@ -907,6 +907,7 @@ http_token_t hs_transition_action(
         parser->body_consumed += hs_stream_jumpall(stream);
         if (parser->meta == M_STR) {
           emitted = hs_stream_emit(stream);
+          hs_stream_shift(stream);
         }
       }
       break;
@@ -925,19 +926,25 @@ char const* pstate[] = {
   "ER", "HN", "BD", "CS", "CB", "CE", "CR", "CN", "CD", "C1", "C2", "BR", "HS_STATE_LEN"
 };
 
-#define HS_END_REQUEST_IF(condition) \
-  if (condition) { \
-    token.type = HS_TOK_REQ_END; \
-    parser->state = 0; \
-    parser->meta = 0; \
-    parser->header_count = 0; \
-    return token; \
+http_token_t hs_meta_emit(http_parser_t* parser) {
+  http_token_t token = {0};
+  switch (parser->meta) {
+    case M_SEN:
+      token.type = HS_TOK_CHUNK_BODY;
+      hs_trigger_meta(parser, HS_META_NEXT);
+      break;
+    case M_END:
+      token.type = HS_TOK_REQ_END;
+      memset(parser, 0, sizeof(http_parser_t));
+      break;
   }
+  return token;
+}
 
 http_token_t http_parse(http_parser_t* parser, hs_stream_t* stream) {
   char c = 0;
-  http_token_t token = {0};
-  HS_END_REQUEST_IF(parser->meta == M_END)
+  http_token_t token = hs_meta_emit(parser);
+  if (token.type != HS_TOK_NONE) return token;
   while (hs_stream_next(stream, &c)) {
     int type = c < 0 ? HS_ETC : hs_ctype[(int)c];
     int to = hs_transitions[parser->state * HS_CHAR_TYPE_LEN + type];
@@ -948,7 +955,8 @@ http_token_t http_parse(http_parser_t* parser, hs_stream_t* stream) {
     hs_stream_consume(stream);
     if (emitted.type != HS_TOK_NONE) return emitted;
   }
-  HS_END_REQUEST_IF(parser->meta == M_END)
+  if (parser->state >= CS && parser->state <= C2) hs_stream_shift(stream);
+  token = hs_meta_emit(parser);
   return token;
 }
 

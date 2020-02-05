@@ -78,6 +78,13 @@ void handle_request(struct http_request_s* request) {
     http_request_set_userdata(request, chunk_buffer);
     http_request_read_chunk(request, chunk_req_cb);
     return;
+  } else if (request_target_is(request, "/large")) {
+    chunk_buf_t* chunk_buffer = (chunk_buf_t*)calloc(1, sizeof(chunk_buf_t));
+    chunk_buffer->buf = (char*)malloc(25165824);
+    chunk_buffer->response = response;
+    http_request_set_userdata(request, chunk_buffer);
+    http_request_read_chunk(request, chunk_req_cb);
+    return;
   } else if (request_target_is(request, "/headers")) {
     int iter = 0, i = 0;
     http_string_t key, val;
