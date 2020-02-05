@@ -726,8 +726,8 @@ int hs_stream_read_socket(hs_stream_t* stream, int socket, int64_t* memused) {
       stream->buf = (char*)realloc(stream->buf, stream->capacity);
       assert(stream->buf != NULL);
     }
-    //printf("bytes: %d\n", bytes);
-  } while (bytes > 0);
+    //printf("bytes: %d, total: %ld\n", bytes, stream->total_bytes);
+  } while (bytes > 0 && stream->capacity < HTTP_MAX_REQUEST_BUF_SIZE);
   return bytes == 0 ? 0 : 1;
 }
 
