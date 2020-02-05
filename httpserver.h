@@ -775,7 +775,7 @@ void hs_stream_anchor(hs_stream_t* stream) {
 
 http_token_t hs_stream_emit(hs_stream_t* stream) {
   http_token_t token = stream->token;
-  http_token_t none = {0};
+  http_token_t none = {0, 0, 0};
   stream->token = none;
   return token;
 }
@@ -823,7 +823,7 @@ http_token_t hs_transition_action(
   int8_t from,
   int8_t to
 ) {
-  http_token_t emitted = {0};
+  http_token_t emitted = {0, 0, 0};
   if (from == HN) hs_stream_anchor(stream);
   if (from != to) {
     int type = hs_token_start_states[to];
@@ -927,7 +927,7 @@ char const* pstate[] = {
 };
 
 http_token_t hs_meta_emit(http_parser_t* parser) {
-  http_token_t token = {0};
+  http_token_t token = {0, 0, 0};
   switch (parser->meta) {
     case M_SEN:
       token.type = HS_TOK_CHUNK_BODY;
@@ -1075,7 +1075,7 @@ char const* tokens[] = {
 void hs_read_and_parse_tokens(http_request_t* request) {
   //printf("read state set\n");
   request->state = HTTP_SESSION_READ;
-  http_token_t token = {0};
+  http_token_t token = {0, 0, 0};
   hs_reset_timeout(request, HTTP_REQUEST_TIMEOUT);
   int rc = hs_stream_read_socket(&request->stream, request->socket, &request->server->memused);
   //printf("rc: %d\n", rc);
@@ -1227,7 +1227,7 @@ int http_server_loop(http_server_t* server) {
 // *** http request ***
 
 http_string_t http_get_token_string(http_request_t* request, int token_type) {
-  http_string_t str = {0};
+  http_string_t str = {0, 0};
   if (request->tokens.buf == NULL) return str;
   for (int i = 0; i < request->tokens.size; i++) {
     http_token_t token = request->tokens.buf[i];
@@ -1589,7 +1589,7 @@ void hs_delete_events(http_request_t* request) {
 
 int http_server_poll(http_server_t* serv) {
   struct kevent ev;
-  struct timespec ts = {0};
+  struct timespec ts = {0, 0};
   int nev = kevent(serv->loop, NULL, 0, &ev, 1, &ts);
   if (nev <= 0) return nev;
   ev_cb_t* ev_cb = (ev_cb_t*)ev.udata;
