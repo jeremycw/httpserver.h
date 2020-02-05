@@ -806,7 +806,7 @@ char const* mstate[] = {
 
 void hs_trigger_meta(http_parser_t* parser, int event) {
   int to = hs_meta_transitions[parser->meta * HS_META_TYPE_LEN + event];
-  printf("-> %s\n", mstate[to]);
+  //printf("-> %s\n", mstate[to]);
   parser->meta = to;
 }
 
@@ -846,9 +846,9 @@ http_token_t hs_transition_action(
   switch (to) {
     case MS:
     case TS:
-    case RR:
       emitted = hs_stream_emit(stream);
       break;
+    case RR:
     case HR:
       hs_trigger_meta(parser, HS_META_END_VALUE);
       emitted = hs_stream_emit(stream);
@@ -948,7 +948,7 @@ http_token_t http_parse(http_parser_t* parser, hs_stream_t* stream) {
   while (hs_stream_next(stream, &c)) {
     int type = c < 0 ? HS_ETC : hs_ctype[(int)c];
     int to = hs_transitions[parser->state * HS_CHAR_TYPE_LEN + type];
-    printf("to: %s\n", pstate[to]);
+    //printf("to: %s\n", pstate[to]);
     int from = parser->state;
     parser->state = to;
     http_token_t emitted = hs_transition_action(parser, stream, c, from, to);
@@ -1081,7 +1081,7 @@ void hs_read_and_parse_tokens(http_request_t* request) {
   //printf("rc: %d\n", rc);
   do {
     token = http_parse(&request->parser, &request->stream);
-    printf("EMITTED: %s, len: %d UNREAD: %d\n", tokens[token.type], token.len, request->stream.length - request->stream.index);
+    //printf("EMITTED: %s, len: %d UNREAD: %d\n", tokens[token.type], token.len, request->stream.length - request->stream.index);
     if (token.type != HS_TOK_NONE) {
       http_token_dyn_push(&request->tokens, token);
     }
@@ -1094,7 +1094,7 @@ void hs_process_tokens(http_request_t* request) {
   while (request->i < request->tokens.size) {
     http_token_t token = request->tokens.buf[request->i];
     request->i++;
-    printf("PROCESSING: %s, UNREAD: %d\n", tokens[token.type], request->stream.length - request->stream.index);
+    //printf("PROCESSING: %s, UNREAD: %d\n", tokens[token.type], request->stream.length - request->stream.index);
     if (token.type == HS_TOK_EOF) {
       return hs_end_session(request);
     } else if (token.type == HS_TOK_ERROR) {
