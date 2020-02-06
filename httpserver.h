@@ -24,7 +24,7 @@
 *
 * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
 *
-* httpserver.h (0.6.0)
+* httpserver.h (0.7.0)
 *
 * Description:
 *
@@ -54,7 +54,7 @@
 *       capacity is reached but it certain environments it may be optimal to
 *       change this value.
 *
-*     HTTP_RESPONSE_BUF_SIZE - default 512 - Same as above except for the
+*     HTTP_RESPONSE_BUF_SIZE - default 1024 - Same as above except for the
 *       response buffer.
 *
 *     HTTP_REQUEST_TIMEOUT - default 20 - The amount of seconds the request will
@@ -65,18 +65,17 @@
 *     HTTP_KEEP_ALIVE_TIMEOUT - default 120 - The amount of seconds to keep a
 *       connection alive a keep-alive request has completed.
 *
-*     HTTP_MAX_CONTENT_LENGTH - default 8388608 (8MB) - The max size in bytes
-*       of the request content length. It should be noted that the request body
-*       will be fully read into memory so while this could be redefined to a
-*       value as large as INT_MAX it will allocate a lot of memory. I would
-*       reccommend using chunked encoding for large requests.
-*
 *     HTTP_MAX_TOTAL_EST_MEM_USAGE - default 4294967296 (4GB) - This is the
 *       amount of read/write buffer space that is allowed to be allocated across
 *       all requests before new requests will get 503 responses.
 *
 *     HTTP_MAX_TOKEN_LENGTH - default 8192 (8KB) - This is the max size of any
 *       non body http tokens. i.e: header names, header values, url length, etc.
+*
+*     HTTP_MAX_REQUEST_BUF_SIZE - default 8388608 (8MB) - This is the maximum
+*       amount of bytes that the request buffer will grow to. If the body of the
+*       request + headers cannot fit in this size the request body will be
+*       streamed in.
 *
 *   For more details see the documentation of the interface and the example
 *   below.
@@ -146,6 +145,15 @@ int http_server_listen_poll(struct http_server_s* server);
 // if no requests were handled. It should be called in a loop until it returns
 // 0.
 int http_server_poll(struct http_server_s* server);
+
+// Returns 1 if the flag is set and false otherwise. The flags that can be
+// queried are listed below
+int http_request_has_flag(struct http_request_s* request, int flag);
+
+// This flag will be set when the request body is chunked or the body is too
+// large to fit in memory are once. This means that the http_request_read_chunk
+// function must be used to read the body piece by piece.
+#define HTTP_FLG_STREAMED 0x1
 
 // Returns the request method as it was read from the HTTP request line.
 struct http_string_s http_request_method(struct http_request_s* request);
@@ -237,9 +245,12 @@ void http_respond_chunk(
 // response headers.
 void http_respond_chunk_end(struct http_request_s* request, struct http_response_s* response);
 
-// If a request has Transfer-Encoding: chunked you cannot read the body in the
-// typical way. Instead you need to call this function to read one chunk at a
-// time. You pass a callback that will be called when the chunk is ready. When
+// If a request has Transfer-Encoding: chunked or the body is too big to fit in
+// memory all at once you cannot read the body in the typical way. Instead you
+// need to call this function to read one chunk at a time. To check if the
+// request requires this type of reading you can call the http_request_has_flag
+// function to check if the HTTP_FLG_STREAMED flag is set. To read a streamed body
+// you pass a callback that will be called when the chunk is ready. When
 // the callback is called you can use `http_request_chunk` to get the current
 // chunk. When done with that chunk call this function again to request the
 // next chunk. If the chunk has size 0 then the request body has been completely
@@ -316,10 +327,9 @@ int main() {
 
 // Application configurable
 #define HTTP_REQUEST_BUF_SIZE 1024
-#define HTTP_RESPONSE_BUF_SIZE 512
+#define HTTP_RESPONSE_BUF_SIZE 1024
 #define HTTP_REQUEST_TIMEOUT 20
 #define HTTP_KEEP_ALIVE_TIMEOUT 120
-#define HTTP_MAX_CONTENT_LENGTH 8388608 // 8mb
 #define HTTP_MAX_TOKEN_LENGTH 8192 // 8kb
 #define HTTP_MAX_TOTAL_EST_MEM_USAGE 4294967296 // 4gb
 #define HTTP_MAX_REQUEST_BUF_SIZE 8388608 // 8mb
@@ -396,7 +406,7 @@ typedef struct {
 typedef struct {
   int64_t content_length;
   int64_t body_consumed;
-  int32_t match_index;
+  int16_t match_index;
   int16_t header_count;
   int8_t state;
   int8_t meta;
@@ -779,6 +789,10 @@ http_token_t hs_stream_emit(hs_stream_t* stream) {
   return token;
 }
 
+http_token_t hs_stream_current_token(hs_stream_t* stream) {
+  return stream->token;
+}
+
 int hs_stream_can_contain(hs_stream_t* stream, int64_t size) {
   return HTTP_MAX_REQUEST_BUF_SIZE - stream->index + 1 >= size;
 }
@@ -944,6 +958,14 @@ http_token_t http_parse(http_parser_t* parser, hs_stream_t* stream) {
   }
   if (parser->state >= CS && parser->state <= C2) hs_stream_shift(stream);
   token = hs_meta_emit(parser);
+  http_token_t current = hs_stream_current_token(stream);
+  if (
+    current.type != HS_TOK_CHUNK_BODY &&
+    current.type != HS_TOK_BODY &&
+    current.len > HTTP_MAX_TOKEN_LENGTH
+  ) {
+    token.type = HS_TOK_ERROR;
+  }
   return token;
 }
 
@@ -1076,6 +1098,9 @@ void hs_process_tokens(http_request_t* request) {
     } else if (token.type == HS_TOK_ERROR) {
       hs_error_response(request, 400, "Bad Request");
     } else if (token.type == HS_TOK_BODY || token.type == HS_TOK_BODY_STREAM) {
+      if (token.type == HS_TOK_BODY_STREAM) {
+        HTTP_FLAG_SET(request->flags, HTTP_FLG_STREAMED);
+      }
       request->state = HTTP_SESSION_NOP;
       request->server->request_handler(request);
       break;
@@ -1208,6 +1233,10 @@ http_string_t http_get_token_string(http_request_t* request, int token_type) {
     }
   }
   return str;
+}
+
+int http_request_has_flag(http_request_t* request, int flag) {
+  return HTTP_FLAG_CHECK(request->flags, flag);
 }
 
 int hs_case_insensitive_cmp(char const * a, char const * b, int len) {
