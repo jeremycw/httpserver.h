@@ -1022,6 +1022,7 @@ int hs_write_client_socket(http_request_t* session) {
     session->stream.buf + session->stream.total_bytes,
     session->stream.length - session->stream.total_bytes
   );
+  //printf("bytes: %d\n", bytes);
   if (bytes > 0) session->stream.total_bytes += bytes;
   return errno == EPIPE ? 0 : 1;
 }
@@ -1069,6 +1070,7 @@ void hs_write_response(http_request_t* request) {
     hs_add_write_event(request);
     request->state = HTTP_SESSION_WRITE;
     hs_reset_timeout(request, HTTP_REQUEST_TIMEOUT);
+    //printf("continue writing\n");
   } else if (HTTP_FLAG_CHECK(request->flags, HTTP_CHUNKED_RESPONSE)) {
     // All bytes of the chunk were written and we need to get the next chunk
     // from the application.
@@ -1134,7 +1136,7 @@ void hs_read_and_process_request(http_request_t* request) {
         }
         return;
     }
-  } while (token.type != HS_TOK_NONE);
+  } while (token.type != HS_TOK_NONE && request->state == HTTP_SESSION_READ);
 }
 
 // Application requesting next chunk of request body.
