@@ -424,7 +424,6 @@ typedef struct http_request_s {
   void* data;
   hs_stream_t stream;
   http_parser_t parser;
-  int i;
   int state;
   int socket;
   int timeout;
@@ -706,6 +705,7 @@ static int const hs_token_start_states[] = {
 // *** input stream ***
 
 int hs_stream_read_socket(hs_stream_t* stream, int socket, int64_t* memused) {
+  if (stream->index < stream->length) return 1;
   if (!stream->buf) {
     *memused += HTTP_REQUEST_BUF_SIZE;
     stream->buf = (char*)calloc(1, HTTP_REQUEST_BUF_SIZE);
@@ -742,7 +742,7 @@ int hs_stream_read_socket(hs_stream_t* stream, int socket, int64_t* memused) {
 
 int hs_stream_next(hs_stream_t* stream, char* c) {
   HTTP_FLAG_CLEAR(stream->flags, HS_SF_CONSUMED);
-  if (stream->index >= stream->length) return 0;
+  if (stream->index >= stream->length || stream->buf == NULL) return 0;
   *c = stream->buf[stream->index];
   return 1;
 }
@@ -831,7 +831,9 @@ http_token_t hs_transition_action(
   int8_t to
 ) {
   http_token_t emitted = {0, 0, 0};
-  if (from == HN) hs_stream_anchor(stream);
+  if (from == HN) {
+    hs_stream_anchor(stream);
+  }
   if (from != to) {
     int type = hs_token_start_states[to];
     if (type != HS_TOK_NONE) hs_stream_begin_token(stream, type);
@@ -881,7 +883,7 @@ http_token_t hs_transition_action(
       if (parser->meta == M_BIG || parser->meta == M_CHK) {
         emitted.type = HS_TOK_BODY_STREAM;
       }
-      if (parser->meta == M_CHK) parser->state = CS;
+      //if (parser->meta == M_CHK) parser->state = CS;
       hs_trigger_meta(parser, HS_META_END_HEADERS);
       if (parser->meta == M_END) {
         emitted.type = HS_TOK_BODY;
@@ -950,13 +952,16 @@ http_token_t http_parse(http_parser_t* parser, hs_stream_t* stream) {
   while (hs_stream_next(stream, &c)) {
     int type = c < 0 ? HS_ETC : hs_ctype[(int)c];
     int to = hs_transitions[parser->state * HS_CHAR_TYPE_LEN + type];
+    if (parser->meta == M_ZER && parser->state == HN && to == BD) {
+      to = CS;
+    }
     int from = parser->state;
     parser->state = to;
     http_token_t emitted = hs_transition_action(parser, stream, c, from, to);
     hs_stream_consume(stream);
     if (emitted.type != HS_TOK_NONE) return emitted;
   }
-  if (parser->state >= CS && parser->state <= C2) hs_stream_shift(stream);
+  if (parser->state == CB) hs_stream_shift(stream);
   token = hs_meta_emit(parser);
   http_token_t current = hs_stream_current_token(stream);
   if (
@@ -1018,7 +1023,6 @@ void hs_free_buffer(http_request_t* session) {
 
 void hs_init_session(http_request_t* session) {
   session->flags = HTTP_AUTOMATIC;
-  session->i = 0;
   session->parser = (http_parser_t){ };
   session->stream = (hs_stream_t){ };
   if (session->tokens.buf) {
@@ -1041,6 +1045,8 @@ void hs_reset_timeout(http_request_t* request, int time) {
   request->timeout = time;
 }
 
+void hs_read_and_process_request(http_request_t* request);
+
 void hs_write_response(http_request_t* request) {
   if (!hs_write_client_socket(request)) { return hs_end_session(request); }
   if (request->stream.total_bytes != request->stream.length) {
@@ -1057,7 +1063,7 @@ void hs_write_response(http_request_t* request) {
     hs_free_buffer(request);
     request->chunk_cb(request);
   } else {
-    hs_process_tokens(request);
+    hs_read_and_process_request(request);
   }
 }
 
@@ -1070,54 +1076,42 @@ void hs_error_response(http_request_t* request, int code, char const * message) 
   hs_write_response(request);
 }
 
-int hs_has_buffered_tokens(http_request_t* request) {
-  return request->i < request->tokens.size;
-}
-
-void hs_read_and_parse_tokens(http_request_t* request) {
+void hs_read_and_process_request(http_request_t* request) {
   request->state = HTTP_SESSION_READ;
   http_token_t token = {0, 0, 0};
   hs_reset_timeout(request, HTTP_REQUEST_TIMEOUT);
   int rc = hs_stream_read_socket(&request->stream, request->socket, &request->server->memused);
+  if (rc == 0) return hs_end_session(request);
   do {
     token = http_parse(&request->parser, &request->stream);
-    if (token.type != HS_TOK_NONE) {
-      http_token_dyn_push(&request->tokens, token);
+    if (token.type != HS_TOK_NONE) http_token_dyn_push(&request->tokens, token);
+    switch (token.type) {
+      case HS_TOK_ERROR:
+        hs_error_response(request, 400, "Bad Request");
+        break;
+      case HS_TOK_BODY:
+      case HS_TOK_BODY_STREAM:
+        if (token.type == HS_TOK_BODY_STREAM) {
+          HTTP_FLAG_SET(request->flags, HTTP_FLG_STREAMED);
+        }
+        request->state = HTTP_SESSION_NOP;
+        request->server->request_handler(request);
+        break;
+      case HS_TOK_CHUNK_BODY:
+        request->state = HTTP_SESSION_NOP;
+        request->chunk_cb(request);
+        break;
+      case HS_TOK_REQ_END:
+        if (HTTP_FLAG_CHECK(request->flags, HTTP_KEEP_ALIVE)) {
+          request->state = HTTP_SESSION_INIT;
+          hs_free_buffer(request);
+          hs_reset_timeout(request, HTTP_KEEP_ALIVE_TIMEOUT);
+        } else {
+          hs_end_session(request);
+        }
+        return;
     }
   } while (token.type != HS_TOK_NONE);
-  token.type = HS_TOK_EOF;
-  if (rc == 0) http_token_dyn_push(&request->tokens, token);
-}
-
-void hs_process_tokens(http_request_t* request) {
-  while (request->i < request->tokens.size) {
-    http_token_t token = request->tokens.buf[request->i];
-    request->i++;
-    if (token.type == HS_TOK_EOF) {
-      return hs_end_session(request);
-    } else if (token.type == HS_TOK_ERROR) {
-      hs_error_response(request, 400, "Bad Request");
-    } else if (token.type == HS_TOK_BODY || token.type == HS_TOK_BODY_STREAM) {
-      if (token.type == HS_TOK_BODY_STREAM) {
-        HTTP_FLAG_SET(request->flags, HTTP_FLG_STREAMED);
-      }
-      request->state = HTTP_SESSION_NOP;
-      request->server->request_handler(request);
-      break;
-    } else if (token.type == HS_TOK_CHUNK_BODY) {
-      request->state = HTTP_SESSION_NOP;
-      request->chunk_cb(request);
-      break;
-    } else if (token.type == HS_TOK_REQ_END) {
-      if (HTTP_FLAG_CHECK(request->flags, HTTP_KEEP_ALIVE)) {
-        request->state = HTTP_SESSION_INIT;
-        hs_free_buffer(request);
-        hs_reset_timeout(request, HTTP_KEEP_ALIVE_TIMEOUT);
-      } else {
-        return hs_end_session(request);
-      }
-    }
-  }
 }
 
 // Application requesting next chunk of request body.
@@ -1126,12 +1120,7 @@ void http_request_read_chunk(
   void (*chunk_cb)(struct http_request_s*)
 ) {
   request->chunk_cb = chunk_cb;
-  if (hs_has_buffered_tokens(request)) {
-    hs_process_tokens(request);
-  } else {
-    hs_read_and_parse_tokens(request);
-    hs_process_tokens(request);
-  }
+  hs_read_and_process_request(request);
 }
 
 // This is the heart of the request logic. This is the state machine that
@@ -1146,8 +1135,7 @@ void http_session(http_request_t* request) {
       }
       // fallthrough
     case HTTP_SESSION_READ:
-      hs_read_and_parse_tokens(request);
-      hs_process_tokens(request);
+      hs_read_and_process_request(request);
       break;
     case HTTP_SESSION_WRITE:
       hs_write_response(request);
@@ -1356,7 +1344,7 @@ void http_request_connection(http_request_t* request, int directive) {
 }
 
 http_string_t http_request_chunk(struct http_request_s* request) {
-  http_token_t token = request->tokens.buf[request->i - 1];
+  http_token_t token = request->tokens.buf[request->tokens.size - 1];
   return (http_string_t) {
     .buf = &request->stream.buf[token.index],
     .len = token.len
