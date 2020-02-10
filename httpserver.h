@@ -1079,7 +1079,13 @@ void hs_write_response(http_request_t* request) {
     hs_free_buffer(request);
     request->chunk_cb(request);
   } else {
-    hs_read_and_process_request(request);
+    if (HTTP_FLAG_CHECK(request->flags, HTTP_KEEP_ALIVE)) {
+      request->state = HTTP_SESSION_INIT;
+      hs_free_buffer(request);
+      hs_reset_timeout(request, HTTP_KEEP_ALIVE_TIMEOUT);
+    } else {
+      hs_end_session(request);
+    }
   }
 }
 
@@ -1126,15 +1132,6 @@ void hs_read_and_process_request(http_request_t* request) {
         request->state = HTTP_SESSION_NOP;
         request->chunk_cb(request);
         break;
-      case HS_TOK_REQ_END:
-        if (HTTP_FLAG_CHECK(request->flags, HTTP_KEEP_ALIVE)) {
-          request->state = HTTP_SESSION_INIT;
-          hs_free_buffer(request);
-          hs_reset_timeout(request, HTTP_KEEP_ALIVE_TIMEOUT);
-        } else {
-          hs_end_session(request);
-        }
-        return;
     }
   } while (token.type != HS_TOK_NONE && request->state == HTTP_SESSION_READ);
 }
