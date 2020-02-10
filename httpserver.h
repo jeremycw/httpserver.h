@@ -743,7 +743,7 @@ int hs_stream_read_socket(hs_stream_t* stream, int socket, int64_t* memused) {
 
 int hs_stream_next(hs_stream_t* stream, char* c) {
   HTTP_FLAG_CLEAR(stream->flags, HS_SF_CONSUMED);
-  if (stream->index >= stream->length || stream->buf == NULL) return 0;
+  if (stream->index >= stream->length) return 0;
   *c = stream->buf[stream->index];
   return 1;
 }
