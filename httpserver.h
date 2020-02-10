@@ -357,7 +357,7 @@ int main() {
 #define HTTP_SESSION_NOP 3
 
 // http session flags
-#define HTTP_END_SESSION 0x1
+#define HTTP_END_SESSION 0x2
 #define HTTP_AUTOMATIC 0x8
 #define HTTP_CHUNKED_RESPONSE 0x20
 
@@ -816,7 +816,7 @@ void hs_stream_shift(hs_stream_t* stream) {
 
 char const* mstate[] = {
   "M_WFK", "M_ANY", "M_MTE", "M_MCL", "M_CLV", "M_MCK", "M_SML", "M_CHK", "M_BIG",
-  "M_ZER", "M_CSZ", "M_CBD", "M_STR", "M_BDY", "M_LST", "M_SEN", "M_END", "M_ERR"
+  "M_ZER", "M_CSZ", "M_CBD", "M_LST", "M_STR", "M_SEN", "M_BDY", "M_END", "M_ERR"
 };
 
 void hs_trigger_meta(http_parser_t* parser, int event) {
