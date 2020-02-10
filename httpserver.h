@@ -357,6 +357,7 @@ int main() {
 #define HTTP_SESSION_NOP 3
 
 // http session flags
+#define HTTP_END_SESSION 0x1
 #define HTTP_AUTOMATIC 0x8
 #define HTTP_CHUNKED_RESPONSE 0x20
 
@@ -1063,7 +1064,10 @@ void hs_read_and_process_request(http_request_t* request);
 
 void hs_write_response(http_request_t* request) {
   //printf("writing!\n");
-  if (!hs_write_client_socket(request)) { return hs_end_session(request); }
+  if (!hs_write_client_socket(request)) { 
+    HTTP_FLAG_SET(request->flags, HTTP_END_SESSION);
+    return;
+  }
   if (request->stream.total_bytes != request->stream.length) {
     // All bytes of the body were not written and we need to wait until the
     // socket is writable again to complete the write
@@ -1084,7 +1088,7 @@ void hs_write_response(http_request_t* request) {
       hs_free_buffer(request);
       hs_reset_timeout(request, HTTP_KEEP_ALIVE_TIMEOUT);
     } else {
-      hs_end_session(request);
+      HTTP_FLAG_SET(request->flags, HTTP_END_SESSION);
     }
   }
 }
@@ -1111,7 +1115,10 @@ void hs_read_and_process_request(http_request_t* request) {
   http_token_t token = {0, 0, 0};
   hs_reset_timeout(request, HTTP_REQUEST_TIMEOUT);
   int rc = hs_stream_read_socket(&request->stream, request->socket, &request->server->memused);
-  if (rc == 0) return hs_end_session(request);
+  if (rc == 0) {
+    HTTP_FLAG_SET(request->flags, HTTP_END_SESSION);
+    return;
+  }
   do {
     token = http_parse(&request->parser, &request->stream);
     //printf("EMITTED: %s, len: %d UNREAD: %d\n", tokens[token.type], token.len, request->stream.length - request->stream.index);
@@ -1164,9 +1171,9 @@ void http_session(http_request_t* request) {
     case HTTP_SESSION_WRITE:
       hs_write_response(request);
       break;
-    case HTTP_SESSION_NOP:
-      //printf("NOP!\n");
-      break;
+  }
+  if (HTTP_FLAG_CHECK(request->flags, HTTP_END_SESSION)) {
+    hs_end_session(request);
   }
 }
 
