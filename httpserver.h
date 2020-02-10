@@ -737,7 +737,6 @@ int hs_stream_read_socket(hs_stream_t* stream, int socket, int64_t* memused) {
       stream->buf = (char*)realloc(stream->buf, stream->capacity);
       assert(stream->buf != NULL);
     }
-    //printf("bytes: %d, total: %ld\n", bytes, stream->total_bytes);
   } while (bytes > 0 && stream->capacity < HTTP_MAX_REQUEST_BUF_SIZE);
   return bytes == 0 ? 0 : 1;
 }
@@ -814,14 +813,8 @@ void hs_stream_shift(hs_stream_t* stream) {
 
 // *** http parser ***
 
-char const* mstate[] = {
-  "M_WFK", "M_ANY", "M_MTE", "M_MCL", "M_CLV", "M_MCK", "M_SML", "M_CHK", "M_BIG",
-  "M_ZER", "M_CSZ", "M_CBD", "M_LST", "M_STR", "M_SEN", "M_BDY", "M_END", "M_ERR"
-};
-
 void hs_trigger_meta(http_parser_t* parser, int event) {
   int to = hs_meta_transitions[parser->meta * HS_META_TYPE_LEN + event];
-  //printf("-> %s\n", mstate[to]);
   parser->meta = to;
 }
 
@@ -938,11 +931,6 @@ http_token_t hs_transition_action(
   return emitted;
 }
 
-char const* pstate[] = {
-  "ST", "MT", "MS", "TR", "TS", "VN", "RR", "RN", "HK", "HS", "HV", "HR", "HE",
-  "ER", "HN", "BD", "CS", "CB", "CE", "CR", "CN", "CD", "C1", "C2", "BR", "HS_STATE_LEN"
-};
-
 http_token_t hs_meta_emit(http_parser_t* parser) {
   http_token_t token = {0, 0, 0};
   switch (parser->meta) {
@@ -968,7 +956,6 @@ http_token_t http_parse(http_parser_t* parser, hs_stream_t* stream) {
     if (parser->meta == M_ZER && parser->state == HN && to == BD) {
       to = CS;
     }
-    //printf("to: %s\n", pstate[to]);
     int from = parser->state;
     parser->state = to;
     http_token_t emitted = hs_transition_action(parser, stream, c, from, to);
@@ -1023,7 +1010,6 @@ int hs_write_client_socket(http_request_t* session) {
     session->stream.buf + session->stream.total_bytes,
     session->stream.length - session->stream.total_bytes
   );
-  //printf("bytes: %d\n", bytes);
   if (bytes > 0) session->stream.total_bytes += bytes;
   return errno == EPIPE ? 0 : 1;
 }
@@ -1063,7 +1049,6 @@ void hs_reset_timeout(http_request_t* request, int time) {
 void hs_read_and_process_request(http_request_t* request);
 
 void hs_write_response(http_request_t* request) {
-  //printf("writing!\n");
   if (!hs_write_client_socket(request)) { 
     HTTP_FLAG_SET(request->flags, HTTP_END_SESSION);
     return;
@@ -1074,7 +1059,6 @@ void hs_write_response(http_request_t* request) {
     hs_add_write_event(request);
     request->state = HTTP_SESSION_WRITE;
     hs_reset_timeout(request, HTTP_REQUEST_TIMEOUT);
-    //printf("continue writing\n");
   } else if (HTTP_FLAG_CHECK(request->flags, HTTP_CHUNKED_RESPONSE)) {
     // All bytes of the chunk were written and we need to get the next chunk
     // from the application.
@@ -1102,15 +1086,7 @@ void hs_error_response(http_request_t* request, int code, char const * message) 
   hs_write_response(request);
 }
 
-
-char const* tokens[] = {
-  "HS_TOK_NONE",        "HS_TOK_METHOD",     "HS_TOK_TARGET",     "HS_TOK_VERSION",
-  "HS_TOK_HEADER_KEY",  "HS_TOK_HEADER_VAL", "HS_TOK_CHUNK_BODY", "HS_TOK_BODY",
-  "HS_TOK_BODY_STREAM", "HS_TOK_REQ_END",    "HS_TOK_EOF",        "HS_TOK_ERROR"
-};
-
 void hs_read_and_process_request(http_request_t* request) {
-  //printf("read state set\n");
   request->state = HTTP_SESSION_READ;
   http_token_t token = {0, 0, 0};
   hs_reset_timeout(request, HTTP_REQUEST_TIMEOUT);
@@ -1121,7 +1097,6 @@ void hs_read_and_process_request(http_request_t* request) {
   }
   do {
     token = http_parse(&request->parser, &request->stream);
-    //printf("EMITTED: %s, len: %d UNREAD: %d\n", tokens[token.type], token.len, request->stream.length - request->stream.index);
     if (token.type != HS_TOK_NONE) http_token_dyn_push(&request->tokens, token);
     switch (token.type) {
       case HS_TOK_ERROR:
@@ -1148,7 +1123,6 @@ void http_request_read_chunk(
   struct http_request_s* request,
   void (*chunk_cb)(struct http_request_s*)
 ) {
-  //printf("reading chunk!\n");
   request->chunk_cb = chunk_cb;
   hs_read_and_process_request(request);
 }
@@ -1156,7 +1130,6 @@ void http_request_read_chunk(
 // This is the heart of the request logic. This is the state machine that
 // controls what happens when an IO event is received.
 void http_session(http_request_t* request) {
-  //printf("io clabback!\n");
   switch (request->state) {
     case HTTP_SESSION_INIT:
       hs_init_session(request);
