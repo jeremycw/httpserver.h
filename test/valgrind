@@ -8,7 +8,7 @@ valgrind --leak-check=full \
          ./bin/main &
 serverpid=$!
 sleep 3
-test/run
+test/main
 kill $serverpid
 sleep 2
 cat valgrind-log.txt | cut -d = -f 5 | grep ERROR > valgrind-results.txt

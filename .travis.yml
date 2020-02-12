@@ -4,7 +4,9 @@ os:
 
 language: c
 before_script:
-  - psql -c 'create database jeremy;' -U postgres
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then pg_ctl -D /usr/local/var/postgres start; fi
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then createdb travis; fi
+  - psql -c 'create database jeremy;' -U `whoami`
 script:
   - make CFLAGS="-fsanitize=address -fsanitize=undefined -fno-sanitize-recover=all" test
   - make test-cpp
@@ -16,5 +18,9 @@ addons:
       - apache2-utils
       - valgrind
       - libpq-dev
+  homebrew:
+    packages:
+      - postgresql
+      - libpq
 services:
   - postgresql
