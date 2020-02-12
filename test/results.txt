@@ -45,3 +45,6 @@ Complete requests:      1000
 
 Stress Test large body:
 Complete requests:      10
+
+Connect to PostgreSQL:
+test_col

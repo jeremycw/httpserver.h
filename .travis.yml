@@ -3,6 +3,8 @@ os:
   - osx
 
 language: c
+before_script:
+  - psql -c 'create database jeremy;' -U postgres
 script:
   - make CFLAGS="-fsanitize=address -fsanitize=undefined -fno-sanitize-recover=all" test
   - make test-cpp
@@ -13,3 +15,6 @@ addons:
     packages:
       - apache2-utils
       - valgrind
+      - libpq-dev
+services:
+  - postgresql

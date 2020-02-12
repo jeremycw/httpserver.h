@@ -1,36 +1,51 @@
-.PHONY: test clean valgrind
+.PHONY: test test-cpp clean valgrind run
 
-CFLAGS :=-O3 -std=c99
-CXXFLAGS :=-O3 -std=c++98
+BINS=main db
+CBINS=$(BINS:%=bin/%)
+CXXBINS=$(BINS:%=bin/cpp/%)
+CCOMMANDS=$(CBINS:%=% &)
+CXXCOMMANDS=$(CXXBINS:%=% &)
+TESTS=$(BINS:%=test/%)
+TESTCMDS=$(TESTS:%=% >> test-results.txt; )
 
-all: http-server
+CFLAGS :=-O3 -std=c99 -lpq
+CXXFLAGS :=-O3 -std=c++98 -lpq
 
-test: test-results.txt
+all: $(CBINS)
+
+run: bin/main
+	bin/main
+
+cpp: $(CXXBINS)
+
+test: $(CBINS) $(TESTS)
+	> test-results.txt
+	$(CCOMMANDS) $(TESTCMDS) killall $(BINS)
 	diff test-results.txt test/results.txt
 
-test-cpp: test-results-cpp.txt
-	diff test-results-cpp.txt test/results.txt
+test-cpp: $(CXXBINS) $(TESTS)
+	> test-results.txt
+	$(CXXCOMMANDS) $(TESTCMDS) killall $(BINS)
+	diff test-results.txt test/results.txt
 
-valgrind: valgrind-results.txt
+valgrind: $(CBINS) test/valgrind
+	test/valgrind
 	diff valgrind-results.txt test/valgrind.txt
 
-test-results.txt: http-server test/run
-	./http-server & test/run > test-results.txt; killall http-server;
+bin/%: test/%.c httpserver.h httpserver-pg.h | bin
+	$(CC) $(CFLAGS) -Wall -Wextra -Werror $< -o $@
 
-valgrind-results.txt: http-server
-	test/valgrind
+bin/cpp/%: test/%.cpp httpserver.h httpserver-pg.h | bin/cpp
+	$(CXX) $(CXXFLAGS) -Wall -Wextra -Werror $< -o $@
 
-http-server: test/main.c httpserver.h
-	$(CC) $(CFLAGS) -Wall -Wextra -Werror test/main.c -o http-server
+test/%.cpp: test/%.c
+	cp $< $@
 
-http-server-cpp: test/main.cpp httpserver.h
-	$(CXX) $(CXXFLAGS) -Wall -Wextra -Werror test/main.cpp -o http-server-cpp
+bin/cpp: bin
+	mkdir $@
 
-test-results-cpp.txt: http-server-cpp
-	./http-server-cpp & test/run > test-results-cpp.txt; killall http-server-cpp;
-
-test/main.cpp: test/main.c
-	cp test/main.c test/main.cpp
+bin:
+	mkdir $@
 
 clean:
-	@rm http-server http-server-cpp *.txt
+	@rm -rf bin *.txt

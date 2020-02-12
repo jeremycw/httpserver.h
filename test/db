@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+
+sleep 1
+
+echo "\nConnect to PostgreSQL:"
+curl http://localhost:8082/

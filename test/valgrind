@@ -5,7 +5,7 @@ valgrind --leak-check=full \
          --track-origins=yes \
          --verbose \
          --log-file=valgrind-log.txt \
-         ./http-server &
+         ./bin/main &
 serverpid=$!
 sleep 3
 test/run
