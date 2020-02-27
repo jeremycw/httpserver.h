@@ -129,6 +129,11 @@ int http_server_loop(struct http_server_s* server);
 // pointer that is called to process requests.
 struct http_server_s* http_server_init(int port, void (*handler)(struct http_request_s*));
 
+// Stores a pointer for future retrieval. This is not used by the library in
+// any way and is strictly for you, the application programmer to make use
+// of.
+void http_server_set_userdata(struct http_server_s* server, void* data);
+
 // Starts the event loop and the server listening. During normal operation this
 // function will not return. Return value is the error code if the server fails
 // to start.
@@ -180,8 +185,11 @@ int http_request_iterate_headers(
   int* iter
 );
 
-// Retrieve the opaque data pointer.
+// Retrieve the opaque data pointer that was set with http_request_set_userdata.
 void* http_request_userdata(struct http_request_s* request);
+
+// Retrieve the opaque data pointer that was set with http_server_set_userdata.
+void* http_request_server_userdata(struct http_request_s* request);
 
 // Stores a pointer for future retrieval. This is not used by the library in
 // any way and is strictly for you, the application programmer to make use
@@ -449,6 +457,7 @@ typedef struct http_server_s {
   void (*request_handler)(http_request_t*);
   struct sockaddr_in addr;
   char* date;
+  void* data;
 } http_server_t;
 
 typedef struct http_header_s {
@@ -1189,6 +1198,10 @@ http_server_t* http_server_init(int port, void (*handler)(http_request_t*)) {
   return serv;
 }
 
+void http_server_set_userdata(struct http_server_s* serv, void* data) {
+  serv->data = data;
+}
+
 void http_listen(http_server_t* serv) {
   // Ignore SIGPIPE. We handle these errors at the call site.
   signal(SIGPIPE, SIG_IGN);
@@ -1321,6 +1334,10 @@ void* http_request_userdata(http_request_t* request) {
 
 void http_request_set_userdata(http_request_t* request, void* data) {
   request->data = data;
+}
+
+void* http_request_server_userdata(struct http_request_s* request) {
+  return request->server->data;
 }
 
 void hs_auto_detect_keep_alive(http_request_t* request) {
