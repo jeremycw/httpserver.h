@@ -448,7 +448,7 @@ typedef struct http_server_s {
   socklen_t len;
   void (*request_handler)(http_request_t*);
   struct sockaddr_in addr;
-  char* date;
+  char date[32];
 } http_server_t;
 
 typedef struct http_header_s {
@@ -1169,12 +1169,12 @@ void hs_accept_connections(http_server_t* server) {
   } while (sock > 0);
 }
 
-void hs_generate_date_time(char** datetime) {
+void hs_generate_date_time(char* datetime) {
   time_t rawtime;
   struct tm * timeinfo;
   time(&rawtime);
-  timeinfo = localtime(&rawtime);
-  *datetime = asctime(timeinfo);
+  timeinfo = gmtime(&rawtime);
+  strftime(datetime, 32, "%a, %d %b %Y %T GMT", timeinfo);
 }
 
 http_server_t* http_server_init(int port, void (*handler)(http_request_t*)) {
@@ -1184,7 +1184,7 @@ http_server_t* http_server_init(int port, void (*handler)(http_request_t*)) {
   serv->memused = 0;
   serv->handler = hs_server_listen_cb;
   hs_server_init(serv);
-  hs_generate_date_time(&serv->date);
+  hs_generate_date_time(serv->date);
   serv->request_handler = handler;
   return serv;
 }
@@ -1460,7 +1460,7 @@ void http_respond_headers(
     http_response_header(response, "Connection", "close");
   }
   grwprintf(
-    printctx, "HTTP/1.1 %d %s\r\nDate: %.24s\r\n",
+    printctx, "HTTP/1.1 %d %s\r\nDate: %s\r\n",
     response->status, hs_status_text[response->status], request->server->date
   );
   http_buffer_headers(request, response, printctx);
@@ -1529,7 +1529,7 @@ void http_respond_chunk_end(http_request_t* request, http_response_t* response) 
 void hs_server_listen_cb(struct kevent* ev) {
   http_server_t* server = (http_server_t*)ev->udata;
   if (ev->filter == EVFILT_TIMER) {
-    hs_generate_date_time(&server->date);
+    hs_generate_date_time(server->date);
   } else {
     hs_accept_connections(server);
   }
@@ -1619,7 +1619,7 @@ void hs_server_timer_cb(struct epoll_event* ev) {
   uint64_t res;
   int bytes = read(server->timerfd, &res, sizeof(res));
   (void)bytes; // suppress warning
-  hs_generate_date_time(&server->date);
+  hs_generate_date_time(server->date);
 }
 
 void hs_request_timer_cb(struct epoll_event* ev) {
