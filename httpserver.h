@@ -1690,7 +1690,7 @@ void hs_server_init(http_server_t* serv) {
   serv->timerfd = tfd;
 }
 
-int http_server_listen(http_server_t* serv, const char* ipaddr) {
+int http_server_listen_addr(http_server_t* serv, const char* ipaddr) {
   http_listen(serv, ipaddr);
   struct epoll_event ev_list[1];
   while (1) {
@@ -1701,6 +1701,10 @@ int http_server_listen(http_server_t* serv, const char* ipaddr) {
     }
   }
   return 0;
+}
+
+int http_server_listen(http_server_t* serv) {
+  return http_server_listen_addr(serv, NULL);
 }
 
 void hs_delete_events(http_request_t* request) {
