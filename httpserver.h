@@ -136,14 +136,19 @@ void http_server_set_userdata(struct http_server_s* server, void* data);
 
 // Starts the event loop and the server listening. During normal operation this
 // function will not return. Return value is the error code if the server fails
-// to start.
+// to start. By default it will listen on all interface. For the second variant
+// provide the IP address of the interface to listen on, or NULL for any.
 int http_server_listen(struct http_server_s* server);
+int http_server_listen_addr(struct http_server_s* server, const char* ipaddr);
 
 // Use this listen call in place of the one above when you want to integrate
 // an http server into an existing application that has a loop already and you
 // want to use the polling functionality instead. This works well for
-// applications like games that have a constant update loop.
+// applications like games that have a constant update loop. By default it will
+// listen on all interface. For the second variant provide the IP address of
+// the interface to listen on, or NULL for any.
 int http_server_listen_poll(struct http_server_s* server);
+int http_server_listen_addr_poll(struct http_server_s* server, const char* ipaddr);
 
 // Call this function in your update loop. It will trigger the request handler
 // once if there is a request ready. Returns 1 if a request was handled and 0
@@ -323,6 +328,7 @@ int main() {
 #include <signal.h>
 #include <limits.h>
 #include <assert.h>
+#include <arpa/inet.h>
 
 #ifdef KQUEUE
 #include <sys/event.h>
@@ -1003,9 +1009,13 @@ void http_token_dyn_init(http_token_dyn_t* dyn, int capacity) {
   dyn->capacity = capacity;
 }
 
-void hs_bind_localhost(int s, struct sockaddr_in* addr, int port) {
+void hs_bind_localhost(int s, struct sockaddr_in* addr, const char* ipaddr, int port) {
   addr->sin_family = AF_INET;
-  addr->sin_addr.s_addr = INADDR_ANY;
+  if (ipaddr == NULL) {
+    addr->sin_addr.s_addr = INADDR_ANY;
+  } else {
+    addr->sin_addr.s_addr = inet_addr(ipaddr);
+  }
   addr->sin_port = htons(port);
   int rc = bind(s, (struct sockaddr *)addr, sizeof(struct sockaddr_in));;
   if (rc < 0) {
@@ -1202,13 +1212,13 @@ void http_server_set_userdata(struct http_server_s* serv, void* data) {
   serv->data = data;
 }
 
-void http_listen(http_server_t* serv) {
+void http_listen(http_server_t* serv, const char* ipaddr) {
   // Ignore SIGPIPE. We handle these errors at the call site.
   signal(SIGPIPE, SIG_IGN);
   serv->socket = socket(AF_INET, SOCK_STREAM, 0);
   int flag = 1;
   setsockopt(serv->socket, SOL_SOCKET, SO_REUSEPORT, &flag, sizeof(flag));
-  hs_bind_localhost(serv->socket, &serv->addr, serv->port);
+  hs_bind_localhost(serv->socket, &serv->addr, ipaddr, serv->port);
   serv->len = sizeof(serv->addr);
   int flags = fcntl(serv->socket, F_GETFL, 0);
   fcntl(serv->socket, F_SETFL, flags | O_NONBLOCK);
@@ -1216,9 +1226,13 @@ void http_listen(http_server_t* serv) {
   hs_add_server_sock_events(serv);
 }
 
-int http_server_listen_poll(http_server_t* serv) {
-  http_listen(serv);
+int http_server_listen_addr_poll(http_server_t* serv, const char* ipaddr) {
+  http_listen(serv, ipaddr);
   return 0;
+}
+
+int http_server_listen_poll(http_server_t* serv) {
+  return http_server_listen_addr_poll(serv, NULL);
 }
 
 int http_server_loop(http_server_t* server) {
@@ -1575,8 +1589,8 @@ void hs_add_server_sock_events(http_server_t* serv) {
   kevent(serv->loop, &ev_set, 1, NULL, 0, NULL);
 }
 
-int http_server_listen(http_server_t* serv) {
-  http_listen(serv);
+int http_server_listen_addr(http_server_t* serv, const char* ipaddr) {
+  http_listen(serv, ipaddr);
 
   struct kevent ev_list[1];
 
@@ -1588,6 +1602,10 @@ int http_server_listen(http_server_t* serv) {
     }
   }
   return 0;
+}
+
+int http_server_listen(http_server_t* serv) {
+  return http_server_listen_addr(serv, NULL);
 }
 
 void hs_delete_events(http_request_t* request) {
@@ -1672,8 +1690,8 @@ void hs_server_init(http_server_t* serv) {
   serv->timerfd = tfd;
 }
 
-int http_server_listen(http_server_t* serv) {
-  http_listen(serv);
+int http_server_listen(http_server_t* serv, const char* ipaddr) {
+  http_listen(serv, ipaddr);
   struct epoll_event ev_list[1];
   while (1) {
     int nev = epoll_wait(serv->loop, ev_list, 1, -1);
