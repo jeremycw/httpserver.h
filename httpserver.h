@@ -172,6 +172,31 @@ struct http_string_s http_request_method(struct http_request_s* request);
 // line.
 struct http_string_s http_request_target(struct http_request_s* request);
 
+// Returns the path component of the full request target as it was read
+// from the HTTP request line.
+struct http_string_s http_request_path(struct http_request_s* request);
+
+// Returns the query string of the full request target as it was read from
+// the HTTP request line. Returns an empty string if there's no query
+// string.
+struct http_string_s http_request_querystring(struct http_request_s* request);
+
+// Returns the value of the key in the query string of the full request target
+// as it was read from the HTTP request line. If the key can't be found, an
+// empty string is returned.
+struct http_string_s http_request_query(struct http_request_s* request, char const * key);
+
+// Procedure used to iterate over all the query parameter. iter should be
+// initialized to zero before calling. Each call will set key and val to the
+// key and value of the next query parameter. Returns 0 when there are no more
+// query parameter.
+int http_request_iterate_query(
+  struct http_request_s* request,
+  struct http_string_s* key,
+  struct http_string_s* val,
+  int* iter
+);
+
 // Returns the request body. If no request body was sent buf and len of the
 // string will be set to 0.
 struct http_string_s http_request_body(struct http_request_s* request);
@@ -329,6 +354,7 @@ int main() {
 #include <limits.h>
 #include <assert.h>
 #include <arpa/inet.h>
+#include <sys/socket.h>
 
 #ifdef KQUEUE
 #include <sys/event.h>
@@ -444,6 +470,7 @@ typedef struct http_request_s {
   int timeout;
   struct http_server_s* server;
   http_token_dyn_t tokens;
+  http_token_dyn_t query;
   char flags;
 } http_request_t;
 
@@ -486,7 +513,8 @@ typedef struct http_string_s http_string_t;
 enum hs_token {
   HS_TOK_NONE,        HS_TOK_METHOD,     HS_TOK_TARGET,     HS_TOK_VERSION,
   HS_TOK_HEADER_KEY,  HS_TOK_HEADER_VAL, HS_TOK_CHUNK_BODY, HS_TOK_BODY,
-  HS_TOK_BODY_STREAM, HS_TOK_REQ_END,    HS_TOK_EOF,        HS_TOK_ERROR
+  HS_TOK_BODY_STREAM, HS_TOK_REQ_END,    HS_TOK_EOF,        HS_TOK_ERROR,
+  HS_TOK_QUERY_KEY,   HS_TOK_QUERY_VAL
 };
 
 enum hs_state {
@@ -1017,7 +1045,7 @@ void hs_bind_localhost(int s, struct sockaddr_in* addr, const char* ipaddr, int 
     addr->sin_addr.s_addr = inet_addr(ipaddr);
   }
   addr->sin_port = htons(port);
-  int rc = bind(s, (struct sockaddr *)addr, sizeof(struct sockaddr_in));;
+  int rc = bind(s, (struct sockaddr *)addr, sizeof(struct sockaddr_in));
   if (rc < 0) {
     exit(1);
   }
@@ -1050,6 +1078,10 @@ void hs_init_session(http_request_t* session) {
     session->tokens.buf = NULL;
   }
   http_token_dyn_init(&session->tokens, 32);
+  if (session->query.buf) {
+    free(session->query.buf);
+    session->query.buf = NULL;
+  }
 }
 
 void hs_end_session(http_request_t* session) {
@@ -1058,6 +1090,8 @@ void hs_end_session(http_request_t* session) {
   hs_free_buffer(session);
   free(session->tokens.buf);
   session->tokens.buf = NULL;
+  free(session->query.buf);
+  session->query.buf = NULL;
   free(session);
 }
 
@@ -1268,12 +1302,153 @@ int hs_case_insensitive_cmp(char const * a, char const * b, int len) {
   return 1;
 }
 
+int hs_case_cmp(char const * a, int lena, char const * b, int lenb) {
+  if(lena != lenb) return 0;
+  for (int i = 0; i < lena; i++) {
+    if (a[i] != b[i]) return 0;
+  }
+  return 1;
+}
+
 http_string_t http_request_method(http_request_t* request) {
   return http_get_token_string(request, HS_TOK_METHOD);
 }
 
 http_string_t http_request_target(http_request_t* request) {
   return http_get_token_string(request, HS_TOK_TARGET);
+}
+
+http_string_t http_request_path(http_request_t* request) {
+  http_string_t path = {0, 0};
+  http_string_t target = http_get_token_string(request, HS_TOK_TARGET);
+  char* q = (char *)memchr(target.buf, '?', target.len);
+  if (q == NULL) {
+    return target;
+  }
+  path.buf = target.buf;
+  path.len = q - target.buf;
+  return path;
+}
+
+http_string_t http_request_querystring(http_request_t* request) {
+  http_string_t query = {0, 0};
+  http_string_t target = http_request_target(request);
+  char* q = (char *)memchr(target.buf, '?', target.len);
+  if (q == NULL) {
+    return query;
+  }
+  query.buf = &q[1];
+  query.len = target.len - (q - target.buf + 1);
+  return query;
+}
+
+void hs_parse_querystring(http_request_t* request, http_string_t query) {
+  http_token_t tok = {0, 0, HS_TOK_QUERY_KEY};
+  if (request->query.buf != NULL) {
+    return;
+  }
+  http_token_dyn_init(&request->query, 32);
+  for (int i = 0; i < query.len; i++) {
+    if (query.buf[i] == '&') {
+      if (tok.index != -1) {
+        http_token_dyn_push(&request->query, tok);
+        tok.index = -1;
+        tok.len = 0;
+      }
+      tok.index = i+1;
+      tok.type = HS_TOK_QUERY_KEY;
+      continue;
+    }
+    else if (query.buf[i] == '=') {
+      if (tok.index != -1 && tok.type != HS_TOK_QUERY_VAL) {
+        http_token_dyn_push(&request->query, tok);
+        tok.index = -1;
+        tok.len = 0;
+      }
+      tok.index = i+1;
+      tok.type = HS_TOK_QUERY_VAL;
+      continue;
+    }
+    tok.len++;
+  }
+  if (tok.index != -1) {
+    http_token_dyn_push(&request->query, tok);
+  }
+  return;
+}
+
+http_string_t http_request_query(http_request_t* request, char const * key) {
+  http_string_t value = {0, 0};
+  http_string_t query = http_request_querystring(request);
+  if (query.len == 0) return value;
+  if (key == NULL) return value;
+  size_t len = strlen(key);
+  if(len == 0) return  value;
+
+  hs_parse_querystring(request, query);
+
+  for (int i = request->query.size-1; i >= 0; i--) {
+    http_token_t tok = request->query.buf[i];
+    if (tok.type != HS_TOK_QUERY_KEY) {
+      continue;
+    }
+    if (hs_case_cmp(&query.buf[tok.index], tok.len, key, len) == 0) {
+      continue;
+    }
+    if (i+1 >= request->query.size) {
+      return value;
+    }
+    tok = request->query.buf[i+1];
+    if (tok.type != HS_TOK_QUERY_VAL) {
+      return value;
+    }
+    value.buf = &query.buf[tok.index];
+    value.len = tok.len;
+    break;
+  }
+  return value;
+}
+
+int http_request_iterate_query(
+  http_request_t* request,
+  http_string_t* key,
+  http_string_t* val,
+  int* iter
+) {
+  http_string_t query = http_request_querystring(request);
+  hs_parse_querystring(request, query);
+  for(; *iter < request->query.size; (*iter)++) {
+    http_token_t token = request->query.buf[*iter];
+    if (token.type != HS_TOK_QUERY_KEY) {
+      continue;
+    }
+    *key = (http_string_t) {
+      .buf = &query.buf[token.index],
+      .len = token.len
+    };
+    if ((*iter)+1 >= request->query.size) {
+      *val = (http_string_t) {
+        .buf = NULL,
+        .len = 0
+      };
+      return 1;
+    }
+    (*iter)++;
+    token = request->query.buf[*iter];
+    if (token.type != HS_TOK_QUERY_VAL) {
+      *val = (http_string_t) {
+        .buf = NULL,
+        .len = 0
+      };
+      return 1;
+    }
+    *val = (http_string_t) {
+      .buf = &query.buf[token.index],
+      .len = token.len
+    };
+    return 1;
+  }
+  return 0;
 }
 
 http_string_t http_request_body(http_request_t* request) {
