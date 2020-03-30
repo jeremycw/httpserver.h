@@ -354,7 +354,6 @@ int main() {
 #include <limits.h>
 #include <assert.h>
 #include <arpa/inet.h>
-#include <sys/socket.h>
 
 #ifdef KQUEUE
 #include <sys/event.h>
@@ -1045,7 +1044,7 @@ void hs_bind_localhost(int s, struct sockaddr_in* addr, const char* ipaddr, int 
     addr->sin_addr.s_addr = inet_addr(ipaddr);
   }
   addr->sin_port = htons(port);
-  int rc = bind(s, (struct sockaddr *)addr, sizeof(struct sockaddr_in));
+  int rc = bind(s, (struct sockaddr *)addr, sizeof(struct sockaddr_in));;
   if (rc < 0) {
     exit(1);
   }
