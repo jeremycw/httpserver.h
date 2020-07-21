@@ -902,6 +902,7 @@ http_token_t hs_transition_action(
       }
       //if (parser->meta == M_CHK) parser->state = CS;
       hs_trigger_meta(parser, HS_META_END_HEADERS);
+      if (parser->content_length == 0 && parser->meta == M_BDY) parser->meta = M_END;
       if (parser->meta == M_END) {
         emitted.type = HS_TOK_BODY;
       }
