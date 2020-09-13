@@ -316,6 +316,8 @@ int main() {
 #define KQUEUE
 #endif
 
+#define _DEFAULT_SOURCE
+
 #include <time.h>
 #include <stdlib.h>
 #include <stdio.h>
