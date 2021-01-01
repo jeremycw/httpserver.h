@@ -1581,7 +1581,7 @@ void hs_session_io_cb(struct kevent* ev) {
 void hs_server_init(http_server_t* serv) {
   serv->loop = kqueue();
   struct kevent ev_set;
-  EV_SET(&ev_set, 1, EVFILT_TIMER, EV_ADD | EV_ENABLE, NOTE_SECONDS, 1, serv);
+  EV_SET(&ev_set, 1, EVFILT_TIMER, EV_ADD | EV_ENABLE, 0, 1000, serv);
   kevent(serv->loop, &ev_set, 1, NULL, 0, NULL);
 }
 
@@ -1629,7 +1629,7 @@ int http_server_poll(http_server_t* serv) {
 void hs_add_events(http_request_t* request) {
   struct kevent ev_set[2];
   EV_SET(&ev_set[0], request->socket, EVFILT_READ, EV_ADD, 0, 0, request);
-  EV_SET(&ev_set[1], request->socket, EVFILT_TIMER, EV_ADD | EV_ENABLE, NOTE_SECONDS, 1, request);
+  EV_SET(&ev_set[1], request->socket, EVFILT_TIMER, EV_ADD | EV_ENABLE, 0, 1000, request);
   kevent(request->server->loop, ev_set, 2, NULL, 0, NULL);
 }
 
