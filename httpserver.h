@@ -526,6 +526,7 @@ void hs_delete_events(struct http_request_s* request);
 void hs_add_events(struct http_request_s* request);
 void hs_add_write_event(struct http_request_s* request);
 void hs_process_tokens(http_request_t* request);
+void hs_read_and_process_request(http_request_t* request);
 
 #ifdef KQUEUE
 
@@ -627,7 +628,7 @@ char const * hs_status_text[] = {
 };
 
 static int const hs_transitions[] = {
-//                                            A-Z G-Z
+//                                            A-F G-Z
 //                spc \n  \r  :   \t  ;   0-9 a-f g-z tch vch etc
 /* ST start */    BR, BR, BR, BR, BR, BR, BR, MT, MT, MT, BR, BR,
 /* MT method */   MS, BR, BR, BR, BR, BR, MT, MT, MT, MT, BR, BR,
@@ -877,6 +878,7 @@ http_token_t hs_transition_action(
       break;
     case RR:
     case HR:
+      // trigger meta end value on \r of request line and header
       hs_trigger_meta(parser, HS_META_END_VALUE);
       emitted = hs_stream_emit(stream);
       break;
@@ -901,10 +903,10 @@ http_token_t hs_transition_action(
       if (parser->meta == M_BIG || parser->meta == M_CHK) {
         emitted.type = HS_TOK_BODY_STREAM;
       }
-      //if (parser->meta == M_CHK) parser->state = CS;
       hs_trigger_meta(parser, HS_META_END_HEADERS);
       if (parser->content_length == 0 && parser->meta == M_BDY) parser->meta = M_END;
       if (parser->meta == M_END) {
+        // emit an empty body token when there is no body
         emitted.type = HS_TOK_BODY;
       }
       break;
@@ -971,9 +973,7 @@ http_token_t http_parse(http_parser_t* parser, hs_stream_t* stream) {
   while (hs_stream_next(stream, &c)) {
     int type = c < 0 ? HS_ETC : hs_ctype[(int)c];
     int to = hs_transitions[parser->state * HS_CHAR_TYPE_LEN + type];
-    if (parser->meta == M_ZER && parser->state == HN && to == BD) {
-      to = CS;
-    }
+    to = parser->meta == M_ZER && to == BD ? CS : to;
     int from = parser->state;
     parser->state = to;
     http_token_t emitted = hs_transition_action(parser, stream, c, from, to);
@@ -1067,8 +1067,6 @@ void hs_end_session(http_request_t* session) {
 void hs_reset_timeout(http_request_t* request, int time) {
   request->timeout = time;
 }
-
-void hs_read_and_process_request(http_request_t* request);
 
 void hs_write_response(http_request_t* request) {
   if (!hs_write_client_socket(request)) {
