@@ -178,6 +178,11 @@ struct hsh_parser_s {
     fbreak;
   }
 
+  action error {
+    error_cb(data, parser->tokens.buf, parser->tokens.size, parser->flags);
+    fbreak;
+  }
+
   token = ^[()<>@,;:\\"/\[\]?={} \t]+ >reset_count @inc_count;
   crlf = '\r\n';
   lws = crlf [ \t]+ >reset_count @inc_count;
@@ -218,17 +223,17 @@ struct hsh_parser_s {
 
   zero_chunk = '0' crlf @end_stream;
 
-  chunk_end := crlf ( chunk | zero_chunk );
+  chunk_end := ( crlf ( chunk | zero_chunk ) ) $!error;
 
-  chunked_body := chunk* zero_chunk;
+  chunked_body := ( chunk* zero_chunk ) $!error;
 
   small_body := any+ >body $small_body_read;
 
   large_body := any+ >body $large_body_read;
 
   main :=
-    request_line
-    headers;
+    request_line $!error
+    headers $!error;
 }%%
 
 %% write data;
