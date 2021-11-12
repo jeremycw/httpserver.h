@@ -185,8 +185,8 @@ struct hsh_parser_s {
 
   token = ^[()<>@,;:\\"/\[\]?={} \t]+ >reset_count @inc_count;
   crlf = '\r\n';
-  lws = crlf [ \t]+ >reset_count @inc_count;
-  ows = [ \t]+ >reset_count @inc_count;
+  lws = crlf [ \t]+;
+  ows = [ \t]+;
 
   method = [a-zA-Z]+ @inc_count ' ';
   target = [^ ]+ @inc_count ' ';
@@ -205,7 +205,7 @@ struct hsh_parser_s {
 
   content_length = (
     ( 'Content-Length'i ':' ) >header_key @emit_token
-    ows digit+ >reset_count @inc_count $content_length_digit ows crlf
+    ows digit+ $content_length_digit ows crlf
   );
 
   transfer_encoding = (
@@ -218,7 +218,7 @@ struct hsh_parser_s {
   headers = ( header+ >reset_count @inc_count crlf ) @done_headers;
 
   chunk = (
-    ( ^[0] xdigit* >reset_count @inc_count ) >chunk_start $chunk_size crlf any+ >body $chunk_read
+    ( ^[0] xdigit* ) >chunk_start $chunk_size crlf any+ >body $chunk_read
   );
 
   zero_chunk = '0' crlf @end_stream;
