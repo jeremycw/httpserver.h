@@ -238,8 +238,6 @@ struct hsh_parser_s {
 
 %% write data;
 
-#define HTTP_REQUEST "GET /foo HTTP/1.1\r\nHost: www.jeremycw.com\r\nContent-Length: 16\r\n\r\naaaaaaaa"
-
 typedef void (*hsh_cb_t)(void* data, struct hsh_token_s* tokens, int tokens_n, uint8_t flags);
 
 void hsh_token_array_push(struct hsh_token_array_s* array, struct hsh_token_s a) {
@@ -278,25 +276,40 @@ void hsh_parse(
 }
 
 void test_req_cb(void* data, struct hsh_token_s* tokens, int tokens_n, uint8_t flags) {
+  (void)data;
+  (void)tokens;
+  (void)tokens_n;
+  (void)flags;
+
   printf("Request callback\n");
 }
 
 void test_body_cb(void* data, struct hsh_token_s* tokens, int tokens_n, uint8_t flags) {
+  (void)data;
+  (void)tokens;
+  (void)tokens_n;
+  (void)flags;
+
   printf("Body callback\n");
 }
 
 void test_error_cb(void* data, struct hsh_token_s* tokens, int tokens_n, uint8_t flags) {
+  (void)data;
+  (void)tokens;
+  (void)tokens_n;
+  (void)flags;
+
   printf("Error callback\n");
 }
 
-int main(int argc, char **argv) {
-  struct hsh_parser_s parser = { 0 };
-  struct hsh_buffer_s buffer = { 0 };
-  parser.state = hsh_http_start;
-  buffer.buf = malloc(1024);
-  buffer.capacity = sizeof(HTTP_REQUEST);
-  memcpy(buffer.buf, HTTP_REQUEST, sizeof(HTTP_REQUEST));
-  buffer.size = sizeof(HTTP_REQUEST) - 1;
-  hsh_parse(&parser, &buffer, test_req_cb, test_body_cb, test_error_cb, NULL);
-  return 0;
-}
+// int main(int argc, char **argv) {
+//   struct hsh_parser_s parser = { 0 };
+//   struct hsh_buffer_s buffer = { 0 };
+//   parser.state = hsh_http_start;
+//   buffer.buf = malloc(1024);
+//   buffer.capacity = sizeof(HTTP_REQUEST);
+//   memcpy(buffer.buf, HTTP_REQUEST, sizeof(HTTP_REQUEST));
+//   buffer.size = sizeof(HTTP_REQUEST) - 1;
+//   hsh_parse(&parser, &buffer, test_req_cb, test_body_cb, test_error_cb, NULL);
+//   return 0;
+// }

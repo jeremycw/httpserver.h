@@ -3,3 +3,9 @@ valgrind-log.txt
 test-results.txt
 valgrind-results.txt
 http-server.dSYM/
+http-server-cpp
+test-results-cpp.txt
+http_parser.c
+test-unit
+a.out
+test/main.cpp
