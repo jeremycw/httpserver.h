@@ -2,7 +2,7 @@
 #include "munit.h"
 #include "../http_parser.c"
 
-#define HTTP_REQUEST "GET /foo HTTP/1.1\r\nHost: www.jeremycw.com\r\nContent-Length: 16\r\n\r\naaaaaaaa"
+#define HTTP_REQUEST "GET /foo HTTP/1.1\r\nHost: www.jeremycw.com\r\nContent-Length: 16\r\n\r\naaaaaaaaaaaaaaaa "
 
 static MunitResult test_http_parser(const MunitParameter params[], void* data) {
   (void)params;
@@ -15,9 +15,9 @@ static MunitResult test_http_parser(const MunitParameter params[], void* data) {
   buffer.capacity = sizeof(HTTP_REQUEST);
   memcpy(buffer.buf, HTTP_REQUEST, sizeof(HTTP_REQUEST));
   buffer.size = sizeof(HTTP_REQUEST) - 1;
-  hsh_parse(&parser, &buffer, test_req_cb, test_body_cb, test_error_cb, NULL);
+  struct hsh_parser_return_s out = hsh_parse(&parser, &buffer);
 
-  munit_assert(1 == 1);
+  munit_assert(out.rc == HSH_PARSER_REQ_READY);
 
   return MUNIT_OK;
 }

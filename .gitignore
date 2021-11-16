@@ -2,10 +2,10 @@ http-server
 valgrind-log.txt
 test-results.txt
 valgrind-results.txt
-http-server.dSYM/
+*.dSYM/
 http-server-cpp
 test-results-cpp.txt
 http_parser.c
-test-unit
+http-server-unit
 a.out
 test/main.cpp

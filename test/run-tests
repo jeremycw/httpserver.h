@@ -103,7 +103,7 @@ case $1 in
     run_base_functional_tests "-cpp"
     ;;
   unit)
-    ./test-unit
+    ./http-server-unit
     ;;
   functional-c)
     run_base_functional_tests
