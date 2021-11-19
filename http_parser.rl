@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <assert.h>
+#include "test/debugbreak.h"
 
 #define HSH_FLAG_SET(var, flag) var |= flag
 #define HSH_FLAG_CHECK(var, flag) (var & flag)
@@ -108,13 +109,13 @@ struct hsh_parser_return_s {
   action done_headers {
     buffer->after_headers_index = p - buffer->buf + 1;
     parser->content_remaining = parser->content_length;
-    if (parser->content_length == 0) {
-      parser->rc = (int8_t)HSH_PARSER_REQ_READY;
-      fbreak;
-    } else if (HSH_FLAG_CHECK(parser->flags, HSH_P_FLAG_CHUNKED)) {
+    if (HSH_FLAG_CHECK(parser->flags, HSH_P_FLAG_CHUNKED)) {
       HSH_FLAG_SET(parser->flags, HSH_FLAG_STREAMED);
       parser->rc = (int8_t)HSH_PARSER_REQ_READY;
       fnext chunked_body;
+      fbreak;
+    } else if (parser->content_length == 0) {
+      parser->rc = (int8_t)HSH_PARSER_REQ_READY;
       fbreak;
     // The body won't fit into the buffer at maximum capacity.
     } else if (parser->content_length > max_buf_capacity - buffer->after_headers_index) {
@@ -236,7 +237,7 @@ struct hsh_parser_return_s {
 
   transfer_encoding = (
     ( 'Transfer-Encoding'i ':' ) >header_key @emit_token
-    ows 'chunked' %transfer_encoding ows crlf
+    ows 'chunked' @transfer_encoding ows crlf
   );
 
   header = content_length | transfer_encoding | generic_header;

@@ -178,11 +178,83 @@ static MunitResult test_parser_large_body(const MunitParameter params[], void* d
   return MUNIT_OK;
 }
 
+static MunitResult test_parser_chunked_body(const MunitParameter params[], void* data) {
+  (void)params;
+  (void)data;
+  char const* request_string = "POST /chunked/test HTTP/1.0\r\nHost: www.jeremycw.com\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nabcde\r\na\r\n1234567890\r\n0\r\n\r\n";
+
+  struct hsh_parser_s parser = { 0 };
+  struct hsh_buffer_s buffer = { 0 };
+  setup_buffer_and_parser(&parser, &buffer, request_string);
+
+  int max_buf_capacity = strlen(request_string);
+  struct hsh_parser_return_s out = hsh_parser_exec(&parser, &buffer, max_buf_capacity);
+
+  munit_assert(out.rc == HSH_PARSER_REQ_READY);
+
+  enum hsh_token_e expected_types[] = {
+    HSH_TOK_METHOD,
+    HSH_TOK_TARGET,
+    HSH_TOK_VERSION,
+    HSH_TOK_HEADER_KEY,
+    HSH_TOK_HEADER_VALUE,
+    HSH_TOK_HEADER_KEY,
+    HSH_TOK_HEADER_VALUE
+  };
+
+  char const* expected_values[] = {
+    "POST",
+    "/chunked/test",
+    "HTTP/1.0",
+    "Host",
+    "www.jeremycw.com",
+    "Transfer-Encoding",
+    "chunked"
+  };
+
+  munit_assert(HSH_FLAG_CHECK(out.flags, HSH_FLAG_STREAMED));
+
+  munit_assert(out.tokens_n > 0);
+  for (int i = 0; i < out.tokens_n; i++) {
+    munit_assert_memory_equal(out.tokens[i].len, expected_values[i], &buffer.buf[out.tokens[i].index]);
+    munit_assert(expected_types[i] == out.tokens[i].type);
+  }
+
+  out = hsh_parser_exec(&parser, &buffer, max_buf_capacity);
+
+  munit_assert(out.rc == HSH_PARSER_BODY_READY);
+
+  struct hsh_token_s body = out.tokens[out.tokens_n - 1];
+  munit_assert(body.type == HSH_TOK_BODY);
+  munit_assert_memory_equal(body.len, "abcde", &buffer.buf[body.index]);
+
+  out = hsh_parser_exec(&parser, &buffer, max_buf_capacity);
+
+  munit_assert(out.rc == HSH_PARSER_BODY_READY);
+
+  body = out.tokens[out.tokens_n - 1];
+  munit_assert(body.type == HSH_TOK_BODY);
+  munit_assert_memory_equal(body.len, "1234567890", &buffer.buf[body.index]);
+
+  out = hsh_parser_exec(&parser, &buffer, max_buf_capacity);
+
+  munit_assert(out.rc == HSH_PARSER_BODY_FINAL);
+
+  body = out.tokens[out.tokens_n - 1];
+  munit_assert(body.type == HSH_TOK_BODY);
+  munit_assert(body.len == 0);
+
+  free(buffer.buf);
+
+  return MUNIT_OK;
+}
+
 static MunitTest tests[] = {
   // definition order: test-name, test-func, setup-func, teardown-func, options, params
   { (char*) "/parser/small_body/complete", test_parser_small_body_complete, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
   { (char*) "/parser/small_body/partial", test_parser_small_body_partial, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
   { (char*) "/parser/large_body", test_parser_large_body, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
+  { (char*) "/parser/chunked_body", test_parser_chunked_body, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
   // end
   { NULL, NULL, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL }
 };
