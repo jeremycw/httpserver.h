@@ -100,7 +100,6 @@ struct hsh_parser_return_s {
   action inc_count {
     parser->limit_count++;
     if (parser->limit_count > parser->limit_max) {
-      // error_cb(data, parser->tokens.buf, parser->tokens.size, parser->flags);
       parser->rc = (int8_t)HSH_PARSER_ERR;
       fbreak;
     }
@@ -110,24 +109,25 @@ struct hsh_parser_return_s {
     buffer->after_headers_index = p - buffer->buf + 1;
     parser->content_remaining = parser->content_length;
     if (parser->content_length == 0) {
-      // request_cb(data, parser->tokens.buf, parser->tokens.size, parser->flags);
       parser->rc = (int8_t)HSH_PARSER_REQ_READY;
       fbreak;
     } else if (HSH_FLAG_CHECK(parser->flags, HSH_P_FLAG_CHUNKED)) {
       HSH_FLAG_SET(parser->flags, HSH_FLAG_STREAMED);
-      // request_cb(data, parser->tokens.buf, parser->tokens.size, parser->flags);
       parser->rc = (int8_t)HSH_PARSER_REQ_READY;
       fnext chunked_body;
       fbreak;
-    // The body won't fit into the buffer without resizing it.
-    } else if (parser->content_length > buffer->capacity - buffer->after_headers_index) {
+    // The body won't fit into the buffer at maximum capacity.
+    } else if (parser->content_length > max_buf_capacity - buffer->after_headers_index) {
       HSH_FLAG_SET(parser->flags, HSH_FLAG_STREAMED);
-      // request_cb(data, parser->tokens.buf, parser->tokens.size, parser->flags);
       parser->rc = (int8_t)HSH_PARSER_REQ_READY;
       fnext large_body;
       fbreak;
     } else {
-      printf("Content-Length: %lld\n", parser->content_length);
+      // Resize the buffer to hold the full body
+      if (parser->content_length + buffer->after_headers_index > buffer->capacity) {
+        buffer->buf = realloc(buffer->buf, parser->content_length + buffer->after_headers_index);
+        buffer->capacity = parser->content_length + buffer->after_headers_index;
+      }
       fnext small_body;
     }
   }
@@ -150,14 +150,10 @@ struct hsh_parser_return_s {
   }
 
   action chunk_read {
-    printf("Chunked body! %c\n", fc);
-
     char* last_body_byte = buffer->buf + parser->token.index + parser->content_length - 1;
-    if (pe > last_body_byte) {
+    if (pe >= last_body_byte) {
       p = last_body_byte;
       parser->token.len = parser->content_length;
-      printf("%.*s, %X\n", parser->token.len, buffer->buf + parser->token.index, fc);
-      // body_cb(data, parser->tokens.buf, parser->tokens.size, parser->flags);
       hsh_token_array_push(&parser->tokens, parser->token);
       parser->rc = (int8_t)HSH_PARSER_BODY_READY;
       fnext chunk_end;
@@ -167,7 +163,6 @@ struct hsh_parser_return_s {
 
   action end_stream {
     // write 0 byte body to tokens
-    // body_cb(data, parser->tokens.buf, parser->tokens.size, parser->flags);
     struct hsh_token_s token;
     token.type = HSH_TOK_BODY;
     token.index = 0;
@@ -181,9 +176,7 @@ struct hsh_parser_return_s {
     parser->token.index = buffer->after_headers_index;
     parser->token.len = parser->content_length;
     char* last_body_byte = buffer->buf + parser->token.index + parser->content_length - 1;
-    if (pe > last_body_byte) {
-      printf("small body!\n");
-      // request_cb(data, parser->tokens.buf, parser->tokens.size, parser->flags);
+    if (pe >= last_body_byte) {
       parser->rc = (int8_t)HSH_PARSER_REQ_READY;
       hsh_token_array_push(&parser->tokens, parser->token);
     }
@@ -192,30 +185,26 @@ struct hsh_parser_return_s {
   }
 
   action large_body_read {
-    printf("Large body read\n");
     parser->token.index = buffer->after_headers_index;
-    char* last_body_byte = buffer->buf + parser->token.index + parser->content_remaining - 1;
-    if (pe > last_body_byte) {
+    char* last_body_byte = buffer->buf + buffer->after_headers_index + parser->content_remaining - 1;
+    if (pe >= last_body_byte) {
       parser->token.len = parser->content_remaining;
       parser->content_remaining = 0;
       // push body token
-      // body_cb(data, parser->tokens.buf, parser->tokens.size, parser->flags);
       parser->rc = (int8_t)HSH_PARSER_BODY_FINAL;
       hsh_token_array_push(&parser->tokens, parser->token);
     } else {
-      parser->token.len = pe - buffer->buf + parser->token.index;
+      parser->token.len = pe - p;
       parser->content_remaining -= parser->token.len;
-      // body_cb(data, parser->tokens.buf, parser->tokens.size, parser->flags);
       parser->rc = (int8_t)HSH_PARSER_BODY_READY;
       hsh_token_array_push(&parser->tokens, parser->token);
+      p = buffer->buf + buffer->after_headers_index;
     }
-    printf("%.*s, %X\n", parser->token.len, buffer->buf + parser->token.index, fc);
     fhold;
     fbreak;
   }
 
   action error {
-    // error_cb(data, parser->tokens.buf, parser->tokens.size, parser->flags);
     parser->rc = (int8_t)HSH_PARSER_ERR;
     fbreak;
   }
@@ -275,8 +264,6 @@ struct hsh_parser_return_s {
 
 %% write data;
 
-typedef void (*hsh_cb_t)(void* data, struct hsh_token_s* tokens, int tokens_n, uint8_t flags);
-
 void hsh_token_array_push(struct hsh_token_array_s* array, struct hsh_token_s a) {
   if (array->size == array->capacity) {
     array->capacity *= 2;
@@ -294,13 +281,18 @@ void hsh_token_array_init(struct hsh_token_array_s* array, int capacity) {
   array->capacity = capacity;
 }
 
-struct hsh_parser_return_s hsh_parse(struct hsh_parser_s* parser, struct hsh_buffer_s* buffer) {
+void hsh_parser_init(struct hsh_parser_s* parser) {
+  memset(parser, 0, sizeof(struct hsh_parser_s));
+  parser->state = hsh_http_start;
+  hsh_token_array_init(&parser->tokens, 16);
+}
+
+struct hsh_parser_return_s hsh_parser_exec(struct hsh_parser_s* parser, struct hsh_buffer_s* buffer, int max_buf_capacity) {
   parser->rc = HSH_PARSER_CONTINUE;
-  printf("here!\n");
   int cs = parser->state;
   char* eof = NULL;
   char *p = buffer->buf + buffer->index;
-  char *pe = p + buffer->size;
+  char *pe = buffer->buf + buffer->size;
   %% write exec;
   parser->state = cs;
   buffer->index = p - buffer->buf;

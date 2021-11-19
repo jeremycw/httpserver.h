@@ -2,6 +2,8 @@
 
 CFLAGS :=-O3 -std=c99
 CXXFLAGS :=-O3 -std=c++98
+DEBUG_FLAGS :=-g -fsanitize=address -fsanitize=undefined -fno-sanitize-recover=all
+
 
 all: http-server
 
@@ -23,7 +25,7 @@ http-server: test/main.c httpserver.h http_parser.c
 	$(CC) $(CFLAGS) -Wall -Wextra -Werror test/main.c -o http-server
 
 http-server-unit: test/test.c httpserver.h http_parser.c
-	$(CC) -g -Wall -Wextra -Werror test/munit.c test/test.c -o http-server-unit
+	$(CC) $(DEBUG_FLAGS) -Wall -Wextra -Werror test/munit.c test/test.c -o http-server-unit
 
 http-server-cpp: test/main.cpp httpserver.h http_parser.c
 	$(CXX) $(CXXFLAGS) -Wall -Wextra -Werror test/main.cpp -o http-server-cpp
