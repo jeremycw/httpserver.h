@@ -30,6 +30,9 @@ http-server-unit: test/test.c httpserver.h http_parser.c
 http-server-cpp: test/main.cpp httpserver.h http_parser.c
 	$(CXX) $(CXXFLAGS) -Wall -Wextra -Werror test/main.cpp -o http-server-cpp
 
+httpserver.h: httpserver.m4 http_parser.c
+	m4 httpserver.m4 > httpserver.h
+
 http_parser.c: http_parser.rl
 	ragel $<
 

@@ -4,7 +4,6 @@
 #include <string.h>
 #include <stdint.h>
 #include <assert.h>
-#include "test/debugbreak.h"
 
 #define HSH_FLAG_SET(var, flag) var |= flag
 #define HSH_FLAG_CHECK(var, flag) (var & flag)
@@ -40,7 +39,7 @@ struct hsh_token_s {
 struct hsh_buffer_s {
   char* buf;
   int32_t capacity;
-  int32_t size;
+  int32_t length;
   int32_t index;
   int32_t after_headers_index;
 };
@@ -293,7 +292,7 @@ struct hsh_parser_return_s hsh_parser_exec(struct hsh_parser_s* parser, struct h
   int cs = parser->state;
   char* eof = NULL;
   char *p = buffer->buf + buffer->index;
-  char *pe = buffer->buf + buffer->size;
+  char *pe = buffer->buf + buffer->length;
   %% write exec;
   parser->state = cs;
   buffer->index = p - buffer->buf;
