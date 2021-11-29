@@ -4,70 +4,22 @@
 #include <string.h>
 #include <stdint.h>
 #include <assert.h>
-
-#define HSH_FLAG_SET(var, flag) var |= flag
-#define HSH_FLAG_CHECK(var, flag) (var & flag)
+#include "http_parser.h"
+#include "test/debugbreak.h"
 
 #define HSH_P_FLAG_CHUNKED 0x1
-#define HSH_FLAG_STREAMED 0x2
+#define HSH_P_FLAG_TOKEN_READY 0x2
+#define HSH_P_FLAG_DONE 0x4
+
+#define HSH_FLAG_SET(var, flag) var |= flag
+#define HSH_FLAG_CLEAR(var, flag) var &= ~flag
 
 #define HSH_ENTER_TOKEN(tok_type, max_len) \
   parser->token.type = tok_type; \
   parser->token.index = p - buffer->buf; \
+  parser->token.flags = 0; \
   parser->limit_count = 0; \
   parser->limit_max = max_len;
-
-enum hsh_token_e {
-  HSH_TOK_METHOD, HSH_TOK_TARGET, HSH_TOK_VERSION, HSH_TOK_HEADER_KEY,
-  HSH_TOK_HEADER_VALUE, HSH_TOK_BODY
-};
-
-enum hsh_parser_rc_e {
-  HSH_PARSER_CONTINUE,
-  HSH_PARSER_REQ_READY,
-  HSH_PARSER_BODY_READY,
-  HSH_PARSER_BODY_FINAL,
-  HSH_PARSER_ERR
-};
-
-struct hsh_token_s {
-  enum hsh_token_e type;
-  int len;
-  int index;
-};
-
-struct hsh_buffer_s {
-  char* buf;
-  int32_t capacity;
-  int32_t length;
-  int32_t index;
-  int32_t after_headers_index;
-};
-
-struct hsh_token_array_s {
-  struct hsh_token_s* buf;
-  int capacity;
-  int size;
-};
-
-struct hsh_parser_s {
-  struct hsh_token_s token;
-  int64_t content_length;
-  int64_t content_remaining;
-  struct hsh_token_array_s tokens;
-  int16_t limit_count;
-  int16_t limit_max;
-  int8_t state;
-  int8_t rc;
-  uint8_t flags;
-};
-
-struct hsh_parser_return_s {
-  struct hsh_token_s const* tokens;
-  int tokens_n;
-  enum hsh_parser_rc_e rc;
-  uint8_t flags;
-};
 
 %%{
   machine hsh_http;
@@ -80,7 +32,9 @@ struct hsh_parser_return_s {
   action body { parser->token.type = HSH_TOK_BODY; parser->token.index = p - buffer->buf; }
   action emit_token {
     parser->token.len = p - (buffer->buf + parser->token.index);
-    hsh_token_array_push(&parser->tokens, parser->token);
+    // hsh_token_array_push(&parser->tokens, parser->token);
+    HSH_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
+    fbreak;
   }
 
   action content_length_digit {
@@ -100,7 +54,7 @@ struct hsh_parser_return_s {
   action inc_count {
     parser->limit_count++;
     if (parser->limit_count > parser->limit_max) {
-      parser->rc = (int8_t)HSH_PARSER_ERR;
+      // parser->rc = (int8_t)HSH_PARSER_ERR;
       fbreak;
     }
   }
@@ -108,18 +62,19 @@ struct hsh_parser_return_s {
   action done_headers {
     buffer->after_headers_index = p - buffer->buf + 1;
     parser->content_remaining = parser->content_length;
+    parser->token = (struct hsh_token_s){ };
+    parser->token.type = HSH_TOK_HEADERS_DONE;
+    HSH_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
     if (HSH_FLAG_CHECK(parser->flags, HSH_P_FLAG_CHUNKED)) {
-      HSH_FLAG_SET(parser->flags, HSH_FLAG_STREAMED);
-      parser->rc = (int8_t)HSH_PARSER_REQ_READY;
+      HSH_FLAG_SET(parser->token.flags, HSH_TOK_FLAG_STREAMED_BODY);
       fnext chunked_body;
       fbreak;
     } else if (parser->content_length == 0) {
-      parser->rc = (int8_t)HSH_PARSER_REQ_READY;
+      HSH_FLAG_SET(parser->token.flags, HSH_TOK_FLAG_NO_BODY);
       fbreak;
     // The body won't fit into the buffer at maximum capacity.
     } else if (parser->content_length > max_buf_capacity - buffer->after_headers_index) {
-      HSH_FLAG_SET(parser->flags, HSH_FLAG_STREAMED);
-      parser->rc = (int8_t)HSH_PARSER_REQ_READY;
+      HSH_FLAG_SET(parser->token.flags, HSH_TOK_FLAG_STREAMED_BODY);
       fnext large_body;
       fbreak;
     } else {
@@ -129,6 +84,7 @@ struct hsh_parser_return_s {
         buffer->capacity = parser->content_length + buffer->after_headers_index;
       }
       fnext small_body;
+      fbreak;
     }
   }
 
@@ -154,21 +110,31 @@ struct hsh_parser_return_s {
     if (pe >= last_body_byte) {
       p = last_body_byte;
       parser->token.len = parser->content_length;
-      hsh_token_array_push(&parser->tokens, parser->token);
-      parser->rc = (int8_t)HSH_PARSER_BODY_READY;
+      HSH_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
       fnext chunk_end;
+      fbreak;
+    // The current chunk is at the end of the buffer and the buffer cannot be expanded.
+    // Move the remaining contents of the buffer to just after the headers to free up
+    // capacity in the buffer.
+    } else if (p - buffer->buf + parser->content_length > max_buf_capacity) {
+      memcpy(buffer->buf + buffer->after_headers_index, p, pe - p);
+      buffer->length = buffer->after_headers_index + pe - p;
+      p = buffer->buf + buffer->after_headers_index;
+      parser->token.index = buffer->after_headers_index;
+      parser->sequence_id = buffer->sequence_id;
+      fhold;
       fbreak;
     }
   }
 
   action end_stream {
     // write 0 byte body to tokens
-    struct hsh_token_s token;
-    token.type = HSH_TOK_BODY;
-    token.index = 0;
-    token.len = 0;
-    hsh_token_array_push(&parser->tokens, token);
-    parser->rc = (int8_t)HSH_PARSER_BODY_FINAL;
+    parser->token.type = HSH_TOK_BODY;
+    parser->token.index = 0;
+    parser->token.len = 0;
+    parser->token.flags = HSH_TOK_FLAG_BODY_FINAL;
+    HSH_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
+    HSH_FLAG_SET(parser->flags, HSH_P_FLAG_DONE);
     fbreak;
   }
 
@@ -177,8 +143,8 @@ struct hsh_parser_return_s {
     parser->token.len = parser->content_length;
     char* last_body_byte = buffer->buf + parser->token.index + parser->content_length - 1;
     if (pe >= last_body_byte) {
-      parser->rc = (int8_t)HSH_PARSER_REQ_READY;
-      hsh_token_array_push(&parser->tokens, parser->token);
+      HSH_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
+      HSH_FLAG_SET(parser->flags, HSH_P_FLAG_DONE);
     }
     fhold;
     fbreak;
@@ -190,22 +156,21 @@ struct hsh_parser_return_s {
     if (pe >= last_body_byte) {
       parser->token.len = parser->content_remaining;
       parser->content_remaining = 0;
-      // push body token
-      parser->rc = (int8_t)HSH_PARSER_BODY_FINAL;
-      hsh_token_array_push(&parser->tokens, parser->token);
+      HSH_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
+      HSH_FLAG_SET(parser->flags, HSH_P_FLAG_DONE);
     } else {
       parser->token.len = pe - p;
       parser->content_remaining -= parser->token.len;
-      parser->rc = (int8_t)HSH_PARSER_BODY_READY;
-      hsh_token_array_push(&parser->tokens, parser->token);
+      HSH_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
       p = buffer->buf + buffer->after_headers_index;
+      parser->sequence_id = buffer->sequence_id;
     }
     fhold;
     fbreak;
   }
 
   action error {
-    parser->rc = (int8_t)HSH_PARSER_ERR;
+    // parser->rc = (int8_t)HSH_PARSER_ERR;
     fbreak;
   }
 
@@ -264,31 +229,17 @@ struct hsh_parser_return_s {
 
 %% write data;
 
-void hsh_token_array_push(struct hsh_token_array_s* array, struct hsh_token_s a) {
-  if (array->size == array->capacity) {
-    array->capacity *= 2;
-    array->buf = (struct hsh_token_s*)realloc(array->buf, array->capacity * sizeof(struct hsh_token_s));
-    assert(array->buf != NULL);
-  }
-  array->buf[array->size] = a;
-  array->size++;
-}
-
-void hsh_token_array_init(struct hsh_token_array_s* array, int capacity) {
-  array->buf = (struct hsh_token_s*)malloc(sizeof(struct hsh_token_s) * capacity);
-  assert(array->buf != NULL);
-  array->size = 0;
-  array->capacity = capacity;
-}
-
 void hsh_parser_init(struct hsh_parser_s* parser) {
   memset(parser, 0, sizeof(struct hsh_parser_s));
   parser->state = hsh_http_start;
-  hsh_token_array_init(&parser->tokens, 16);
 }
 
-struct hsh_parser_return_s hsh_parser_exec(struct hsh_parser_s* parser, struct hsh_buffer_s* buffer, int max_buf_capacity) {
-  parser->rc = HSH_PARSER_CONTINUE;
+struct hsh_token_s hsh_parser_exec(struct hsh_parser_s* parser, struct hsh_buffer_s* buffer, int max_buf_capacity) {
+  struct hsh_token_s none = {};
+  none.type = HSH_TOK_NONE;
+  if (HSH_FLAG_CHECK(parser->flags, HSH_P_FLAG_DONE) || parser->sequence_id == buffer->sequence_id) {
+    return none;
+  }
   int cs = parser->state;
   char* eof = NULL;
   char *p = buffer->buf + buffer->index;
@@ -296,10 +247,11 @@ struct hsh_parser_return_s hsh_parser_exec(struct hsh_parser_s* parser, struct h
   %% write exec;
   parser->state = cs;
   buffer->index = p - buffer->buf;
-  struct hsh_parser_return_s parser_return;
-  parser_return.tokens = parser->tokens.buf;
-  parser_return.flags = parser->flags;
-  parser_return.rc = parser->rc;
-  parser_return.tokens_n = parser->tokens.size;
-  return parser_return;
+  if (HSH_FLAG_CHECK(parser->flags, HSH_P_FLAG_TOKEN_READY)) {
+    HSH_FLAG_CLEAR(parser->flags, HSH_P_FLAG_TOKEN_READY);
+    return parser->token;
+  } else {
+    parser->sequence_id = buffer->sequence_id;
+    return none;
+  }
 }

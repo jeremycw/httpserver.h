@@ -386,6 +386,8 @@ int main() {
 
 // structs
 
+include(`http_parser.h')
+
 #ifdef EPOLL
 typedef void (*epoll_cb_t)(struct epoll_event*);
 #endif
@@ -408,11 +410,12 @@ typedef struct http_request_s {
 #endif
   void (*chunk_cb)(struct http_request_s*);
   void* data;
-  struct hsh_buffer_s buffer
+  struct hsh_buffer_s buffer;
   struct hsh_parser_s parser;
   int state;
   int socket;
   int timeout;
+  int64_t bytes_written;
   struct http_server_s* server;
   char flags;
 } http_request_t;
@@ -568,14 +571,25 @@ char const * hs_status_text[] = {
 // *** http parser ***
 
 include(`http_parser.c')
+#line 571 "httpserver.h"
 
-int hs_read_socket(struct hsh_buffer_s* buffer, int socket, int64_t* memused) {
+struct hs_read_socket_options_s {
+  int32_t initial_request_buf_capacity;
+  int64_t max_request_buf_capacity;
+};
+
+int hs_read_socket(
+  struct hsh_buffer_s* buffer,
+  int socket,
+  int64_t* memused,
+  struct hs_read_socket_options_s opts
+) {
   if (buffer->index < buffer->length) return 1;
   if (!buffer->buf) {
-    *memused += HTTP_REQUEST_BUF_SIZE;
-    buffer->buf = (char*)calloc(1, HTTP_REQUEST_BUF_SIZE);
+    *memused += opts.initial_request_buf_capacity;
+    buffer->buf = (char*)calloc(1, opts.initial_request_buf_capacity);
     assert(buffer->buf != NULL);
-    buffer->capacity = HTTP_REQUEST_BUF_SIZE;
+    buffer->capacity = opts.initial_request_buf_capacity;
   }
   int bytes;
   do {
@@ -584,24 +598,21 @@ int hs_read_socket(struct hsh_buffer_s* buffer, int socket, int64_t* memused) {
       buffer->buf + buffer->length,
       buffer->capacity - buffer->length
     );
-    if (bytes > 0) {
-      buffer->length += bytes;
-      // stream->total_bytes += bytes;
-    }
+    if (bytes > 0) buffer->length += bytes;
     if (
       buffer->length == buffer->capacity &&
-      buffer->capacity != HTTP_MAX_REQUEST_BUF_SIZE
+      buffer->capacity != opts.max_request_buf_capacity
     ) {
       *memused -= buffer->capacity;
       buffer->capacity *= 2;
-      if (buffer->capacity > HTTP_MAX_REQUEST_BUF_SIZE) {
-        buffer->capacity = HTTP_MAX_REQUEST_BUF_SIZE;
+      if (buffer->capacity > opts.max_request_buf_capacity) {
+        buffer->capacity = opts.max_request_buf_capacity;
       }
       *memused += buffer->capacity;
       buffer->buf = (char*)realloc(buffer->buf, buffer->capacity);
       assert(buffer->buf != NULL);
     }
-  } while (bytes > 0 && buffer->capacity < HTTP_MAX_REQUEST_BUF_SIZE);
+  } while (bytes > 0 && buffer->capacity < opts.max_request_buf_capacity);
   return bytes == 0 ? 0 : 1;
 }
 
@@ -624,10 +635,10 @@ void hs_bind_localhost(int s, struct sockaddr_in* addr, const char* ipaddr, int 
 int hs_write_client_socket(http_request_t* session) {
   int bytes = write(
     session->socket,
-    session->buffer.buf + session->stream.total_bytes,
-    session->buffer.length - session->stream.total_bytes
+    session->buffer.buf + session->bytes_written,
+    session->buffer.length - session->bytes_wirtten
   );
-  if (bytes > 0) session->stream.total_bytes += bytes;
+  if (bytes > 0) session->bytes_written += bytes;
   return errno == EPIPE ? 0 : 1;
 }
 
@@ -670,7 +681,7 @@ void hs_write_response(http_request_t* request) {
     HTTP_FLAG_SET(request->flags, HTTP_END_SESSION);
     return;
   }
-  if (request->stream.total_bytes != request->buffer.length) {
+  if (request->bytes_written != request->buffer.length) {
     // All bytes of the body were not written and we need to wait until the
     // socket is writable again to complete the write
     hs_add_write_event(request);
