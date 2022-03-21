@@ -9,33 +9,10 @@
 
 // HSH_TOK_BODY flags
 #define HSH_TOK_FLAG_BODY_FINAL 0x1
+#define HSH_TOK_FLAG_SMALL_BODY 0x2
 
-enum hsh_token_e {
-  HSH_TOK_METHOD, HSH_TOK_TARGET, HSH_TOK_VERSION, HSH_TOK_HEADER_KEY,
-  HSH_TOK_HEADER_VALUE, HSH_TOK_HEADERS_DONE, HSH_TOK_BODY, HSH_TOK_NONE
-};
-
-struct hsh_token_s {
-  enum hsh_token_e type;
-  uint8_t flags;
-  int len;
-  int index;
-};
-
-struct hsh_buffer_s {
-  char* buf;
-  int32_t capacity;
-  int32_t length;
-  int32_t index;
-  int32_t after_headers_index;
-  int8_t sequence_id;
-};
-
-// struct hsh_token_array_s {
-//   struct hsh_token_s* buf;
-//   int capacity;
-//   int size;
-// };
+#include <stdint.h>
+#include "lib.h"
 
 struct hsh_parser_s {
   int64_t content_length;

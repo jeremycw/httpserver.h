@@ -4,8 +4,8 @@
 #include <string.h>
 #include <stdint.h>
 #include <assert.h>
+#include "util.h"
 #include "http_parser.h"
-#include "test/debugbreak.h"
 
 #define HSH_P_FLAG_CHUNKED 0x1
 #define HSH_P_FLAG_TOKEN_READY 0x2
@@ -141,6 +141,7 @@
   action small_body_read {
     parser->token.index = buffer->after_headers_index;
     parser->token.len = parser->content_length;
+    HSH_FLAG_SET(parser->token.flags, HSH_TOK_FLAG_SMALL_BODY);
     char* last_body_byte = buffer->buf + parser->token.index + parser->content_length - 1;
     if (pe >= last_body_byte) {
       HSH_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);

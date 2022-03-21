@@ -1,43 +1,42 @@
-.PHONY: test clean valgrind test-unit test-functional-cpp test-functional
+.PHONY: test clean valgrind test-unit test-integration-cpp test-integration
 
 CFLAGS :=-O3 -std=c99
 CXXFLAGS :=-O3 -std=c++98
 DEBUG_FLAGS :=-g -fsanitize=address -fsanitize=undefined -fno-sanitize-recover=all
 
-
 all: http-server
 
-test: test/run-tests test/results.txt test-unit test-functional test-functional-cpp
+test: test/integration/run-tests test/integration/results.txt test-unit test-integration test-integration-cpp
 
-test-unit: http-server-unit
+test-unit: hs-unit
 	test/run-tests unit
 
-test-functional-cpp: http-server-cpp
-	test/run-tests functional-cpp
+test-integration-cpp: hs-integration-cpp
+	test/run-tests integration-cpp
 
-test-functional: http-server
-	test/run-tests functional-c
+test-integration: hs-integration
+	test/run-tests integration-c
 
-valgrind: http-server valgrind-results.txt
+test-integration-valgrind: hs-integration valgrind-results.txt
 	test/run-tests valgrind
 
-http-server: test/main.c httpserver.h http_parser.c
-	$(CC) $(CFLAGS) -Wall -Wextra -Werror test/main.c -o http-server
+hs-integration: test/main.c httpserver.h
+	$(CC) $(CFLAGS) -Wall -Wextra -Werror test/main.c -o hs-integration
 
-http-server-unit: test/test.c httpserver.h http_parser.c
-	$(CC) $(DEBUG_FLAGS) -Wall -Wextra -Werror test/munit.c test/test.c -o http-server-unit
+hs-integration-cpp: test/main.cpp httpserver.h
+	$(CXX) $(CXXFLAGS) -Wall -Wextra -Werror test/main.cpp -o hs-integration-cpp
 
-http-server-cpp: test/main.cpp httpserver.h http_parser.c
-	$(CXX) $(CXXFLAGS) -Wall -Wextra -Werror test/main.cpp -o http-server-cpp
+hs-unit: test/unit/main.c test/unit/test_parser.c test/unit/test_server.c src/http_parser.c src/server.c src/lib.c
+	$(CC) $(DEBUG_FLAGS) -Wall -Wextra test/unit/munit.c $^ -o hs-unit
 
-httpserver.h: httpserver.m4 http_parser.c
+httpserver.h: src/httpserver.m4 src/http_parser.c src/http_parser.h
 	m4 httpserver.m4 > httpserver.h
 
-http_parser.c: http_parser.rl
+src/http_parser.c: src/http_parser.rl
 	ragel $<
 
-test/main.cpp: test/main.c
-	cp test/main.c test/main.cpp
+test/integration/main.cpp: test/integration/main.c
+	cp test/integration/main.c test/integration/main.cpp
 
 clean:
-	@rm http-server* *.txt
+	@rm hs-* http-server* *.txt

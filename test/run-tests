@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 
-run_functional_tests() {
+run_integration_tests() {
   echo "Small Response Body:"
   curl http://localhost:8080/
 
@@ -69,7 +69,7 @@ run_functional_tests() {
   rm *.dat *.bench
 }
 
-run_valgrind_functional_tests() {
+run_valgrind_integration_tests() {
   valgrind --leak-check=full \
            --show-leak-kinds=all \
            --track-origins=yes \
@@ -78,7 +78,7 @@ run_valgrind_functional_tests() {
            ./http-server &
   serverpid=$!
   sleep 3
-  run_functional_tests
+  run_integration_tests
   kill $serverpid
   sleep 2
   cat valgrind-log.txt | cut -d = -f 5 | grep ERROR > valgrind-results.txt
@@ -87,31 +87,31 @@ run_valgrind_functional_tests() {
   diff valgrind-results.txt test/valgrind.txt
 }
 
-run_base_functional_tests() {
-  ./http-server$1 &
+run_base_integration_tests() {
+  ./hs-integration$1 &
   serverpid=$!
   sleep 1
-  run_functional_tests > test-results$1.txt
+  run_integration_tests > test-results$1.txt
   kill $serverpid
   diff test-results$1.txt test/results.txt
 }
 
 case $1 in
   test)
-    ./test-unit
-    run_base_functional_tests
-    run_base_functional_tests "-cpp"
+    ./hs-unit
+    run_base_integration_tests
+    run_base_integration_tests "-cpp"
     ;;
   unit)
-    ./http-server-unit
+    ./hs-unit
     ;;
-  functional-c)
-    run_base_functional_tests
+  integration-c)
+    run_base_integration_tests
     ;;
-  functional-cpp)
-    run_base_functional_tests "-cpp"
+  integration-cpp)
+    run_base_integration_tests "-cpp"
     ;;
   valgrind)
-    run_valgrind_functional_tests
+    run_valgrind_integration_tests
     ;;
 esac
