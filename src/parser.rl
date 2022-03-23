@@ -4,15 +4,14 @@
 #include <string.h>
 #include <stdint.h>
 #include <assert.h>
-#include "util.h"
-#include "http_parser.h"
+
+#ifndef HTTPSERVER_IMPL
+#include "parser.h"
+#endif
 
 #define HSH_P_FLAG_CHUNKED 0x1
 #define HSH_P_FLAG_TOKEN_READY 0x2
 #define HSH_P_FLAG_DONE 0x4
-
-#define HSH_FLAG_SET(var, flag) var |= flag
-#define HSH_FLAG_CLEAR(var, flag) var &= ~flag
 
 #define HSH_ENTER_TOKEN(tok_type, max_len) \
   parser->token.type = tok_type; \
@@ -33,7 +32,7 @@
   action emit_token {
     parser->token.len = p - (buffer->buf + parser->token.index);
     // hsh_token_array_push(&parser->tokens, parser->token);
-    HSH_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
+    HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
     fbreak;
   }
 
@@ -43,7 +42,7 @@
   }
 
   action transfer_encoding {
-    HSH_FLAG_SET(parser->flags, HSH_P_FLAG_CHUNKED);
+    HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_CHUNKED);
   }
 
   action reset_count {
@@ -64,17 +63,17 @@
     parser->content_remaining = parser->content_length;
     parser->token = (struct hsh_token_s){ };
     parser->token.type = HSH_TOK_HEADERS_DONE;
-    HSH_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
-    if (HSH_FLAG_CHECK(parser->flags, HSH_P_FLAG_CHUNKED)) {
-      HSH_FLAG_SET(parser->token.flags, HSH_TOK_FLAG_STREAMED_BODY);
+    HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
+    if (HTTP_FLAG_CHECK(parser->flags, HSH_P_FLAG_CHUNKED)) {
+      HTTP_FLAG_SET(parser->token.flags, HSH_TOK_FLAG_STREAMED_BODY);
       fnext chunked_body;
       fbreak;
     } else if (parser->content_length == 0) {
-      HSH_FLAG_SET(parser->token.flags, HSH_TOK_FLAG_NO_BODY);
+      HTTP_FLAG_SET(parser->token.flags, HSH_TOK_FLAG_NO_BODY);
       fbreak;
     // The body won't fit into the buffer at maximum capacity.
     } else if (parser->content_length > max_buf_capacity - buffer->after_headers_index) {
-      HSH_FLAG_SET(parser->token.flags, HSH_TOK_FLAG_STREAMED_BODY);
+      HTTP_FLAG_SET(parser->token.flags, HSH_TOK_FLAG_STREAMED_BODY);
       fnext large_body;
       fbreak;
     } else {
@@ -110,7 +109,7 @@
     if (pe >= last_body_byte) {
       p = last_body_byte;
       parser->token.len = parser->content_length;
-      HSH_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
+      HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
       fnext chunk_end;
       fbreak;
     // The current chunk is at the end of the buffer and the buffer cannot be expanded.
@@ -133,19 +132,19 @@
     parser->token.index = 0;
     parser->token.len = 0;
     parser->token.flags = HSH_TOK_FLAG_BODY_FINAL;
-    HSH_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
-    HSH_FLAG_SET(parser->flags, HSH_P_FLAG_DONE);
+    HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
+    HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_DONE);
     fbreak;
   }
 
   action small_body_read {
     parser->token.index = buffer->after_headers_index;
     parser->token.len = parser->content_length;
-    HSH_FLAG_SET(parser->token.flags, HSH_TOK_FLAG_SMALL_BODY);
+    HTTP_FLAG_SET(parser->token.flags, HSH_TOK_FLAG_SMALL_BODY);
     char* last_body_byte = buffer->buf + parser->token.index + parser->content_length - 1;
     if (pe >= last_body_byte) {
-      HSH_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
-      HSH_FLAG_SET(parser->flags, HSH_P_FLAG_DONE);
+      HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
+      HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_DONE);
     }
     fhold;
     fbreak;
@@ -157,12 +156,12 @@
     if (pe >= last_body_byte) {
       parser->token.len = parser->content_remaining;
       parser->content_remaining = 0;
-      HSH_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
-      HSH_FLAG_SET(parser->flags, HSH_P_FLAG_DONE);
+      HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
+      HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_DONE);
     } else {
       parser->token.len = pe - p;
       parser->content_remaining -= parser->token.len;
-      HSH_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
+      HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
       p = buffer->buf + buffer->after_headers_index;
       parser->sequence_id = buffer->sequence_id;
     }
@@ -238,7 +237,7 @@ void hsh_parser_init(struct hsh_parser_s* parser) {
 struct hsh_token_s hsh_parser_exec(struct hsh_parser_s* parser, struct hsh_buffer_s* buffer, int max_buf_capacity) {
   struct hsh_token_s none = {};
   none.type = HSH_TOK_NONE;
-  if (HSH_FLAG_CHECK(parser->flags, HSH_P_FLAG_DONE) || parser->sequence_id == buffer->sequence_id) {
+  if (HTTP_FLAG_CHECK(parser->flags, HSH_P_FLAG_DONE) || parser->sequence_id == buffer->sequence_id) {
     return none;
   }
   int cs = parser->state;
@@ -248,8 +247,8 @@ struct hsh_token_s hsh_parser_exec(struct hsh_parser_s* parser, struct hsh_buffe
   %% write exec;
   parser->state = cs;
   buffer->index = p - buffer->buf;
-  if (HSH_FLAG_CHECK(parser->flags, HSH_P_FLAG_TOKEN_READY)) {
-    HSH_FLAG_CLEAR(parser->flags, HSH_P_FLAG_TOKEN_READY);
+  if (HTTP_FLAG_CHECK(parser->flags, HSH_P_FLAG_TOKEN_READY)) {
+    HTTP_FLAG_CLEAR(parser->flags, HSH_P_FLAG_TOKEN_READY);
     return parser->token;
   } else {
     parser->sequence_id = buffer->sequence_id;

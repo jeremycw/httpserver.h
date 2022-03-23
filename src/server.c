@@ -1,184 +1,149 @@
 #include <stdlib.h>
+#include <fcntl.h>
+#include <time.h>
 #include <assert.h>
-#include <unistd.h>
-#include <errno.h>
 
-#include "http_parser.h"
-#include "data.h"
-#include "lib.h"
+#ifndef HTTPSERVER_IMPL
+#include "common.h"
 #include "server.h"
-
-#include "../test/debugbreak.h"
-
-// This is the heart of the request logic. This is the state machine that
-// controls what happens when an IO event is received.
-void hs_server_process_read_ready(struct hs_server_process_read_ready_s* params) {
-  params->request_state = HTTP_SESSION_READ;
-  params->request_timeout = HTTP_REQUEST_TIMEOUT;
-
-  struct hsh_buffer_s* buffer = params->buffer;
-
-  // Check if there is already content in the buffer.
-  if (buffer->index < buffer->length) goto skip_socket_read;
-
-  int bytes;
-  do {
-    bytes = read(
-      params->request_socket,
-      buffer->buf + buffer->length,
-      buffer->capacity - buffer->length
-    );
-    if (bytes > 0) buffer->length += bytes;
-
-    if (
-      buffer->length == buffer->capacity &&
-      buffer->capacity != params->max_request_buf_capacity
-    ) {
-      params->server_memused -= buffer->capacity;
-      buffer->capacity *= 2;
-      if (buffer->capacity > params->max_request_buf_capacity) {
-        buffer->capacity = params->max_request_buf_capacity;
-      }
-      params->server_memused += buffer->capacity;
-      buffer->buf = (char*)realloc(buffer->buf, buffer->capacity);
-      assert(buffer->buf != NULL);
-    }
-  } while (bytes > 0 && buffer->capacity < params->max_request_buf_capacity);
-
-  buffer->sequence_id++;
-
-  if (bytes == params->eof_rc) {
-    params->after_event = HS_EVT_SOCKET_CLOSED;
-    return;
-  }
-
-skip_socket_read:
-
-  do {
-    struct hsh_token_s token = hsh_parser_exec(params->parser, params->buffer, params->max_request_buf_capacity);
-    switch (token.type) {
-      case HSH_TOK_HEADERS_DONE:
-        if (
-          HSH_FLAG_CHECK(token.flags, HSH_TOK_FLAG_STREAMED_BODY)
-          || HSH_FLAG_CHECK(token.flags, HSH_TOK_FLAG_NO_BODY)
-        ) {
-          params->after_event = HS_EVT_REQUEST_CALLBACK;
-          return;
-        }
-        break;
-      case HSH_TOK_BODY:
-        if (HSH_FLAG_CHECK(token.flags, HSH_TOK_FLAG_SMALL_BODY)) {
-          params->after_event = HS_EVT_REQUEST_CALLBACK;
-        } else {
-          params->after_event = HS_EVT_BODY_CALLBACK;
-        }
-        hs_token_array_push(params->tokens, token);
-        return;
-      case HSH_TOK_ERR:
-        params->after_event = HS_EVT_PARSER_ERR;
-        return;
-      case HSH_TOK_NONE:
-        return;
-      default:
-        hs_token_array_push(params->tokens, token);
-        break;
-    }
-  } while (1);
-}
-
-// Writes response bytes out to the socket. Runs when we get a socket ready to
-// write event or when writing to the socket for the first time.
-void hs_server_process_write_ready(struct hs_server_process_write_ready_s* params) {
-  int bytes = write(
-    params->request_socket,
-    params->buffer->buf + params->bytes_written,
-    params->buffer->length - params->bytes_written
-  );
-  if (bytes > 0) params->bytes_written += bytes;
-
-  if (errno == EPIPE) {
-    params->after_event = HS_EVT_SOCKET_CLOSED;
-    return;
-  }
-
-  if (params->bytes_written != params->buffer->length) {
-    // All bytes of the body were not written and we need to wait until the
-    // socket is writable again to complete the write
-
-    // add write event listener
-    {
-#ifdef EPOLL
-      // epoll
-      struct epoll_event ev;
-      ev.events = EPOLLOUT | EPOLLET;
-      ev.data.ptr = params->request_ptr;
-      epoll_ctl(params->event_loop, EPOLL_CTL_MOD, params->request_socket, &ev);
-#else
-      // kqueue
-      struct kevent ev_set[2];
-      EV_SET(&ev_set[0], params->request_socket, EVFILT_WRITE, EV_ADD | EV_CLEAR, 0, 0, params->request_ptr);
-      kevent(params->event_loop, ev_set, 2, NULL, 0, NULL);
 #endif
-    }
 
-    params->request_state = HTTP_SESSION_WRITE;
-    params->request_timeout = HTTP_REQUEST_TIMEOUT;
-  } else if (HSH_FLAG_CHECK(params->request_flags, HTTP_CHUNKED_RESPONSE)) {
-    // All bytes of the chunk were written and we need to get the next chunk
-    // from the application.
-    params->request_state = HTTP_SESSION_WRITE;
-    params->request_timeout = HTTP_REQUEST_TIMEOUT;
-    hsh_buffer_free(params->buffer, &params->server_memused);
-    params->after_event = HS_EVT_BODY_CALLBACK;
+void _hs_bind_localhost(int s, struct sockaddr_in* addr, const char* ipaddr, int port) {
+  addr->sin_family = AF_INET;
+  if (ipaddr == NULL) {
+    addr->sin_addr.s_addr = INADDR_ANY;
   } else {
-    if (HSH_FLAG_CHECK(params->request_flags, HTTP_KEEP_ALIVE)) {
-      params->request_state = HTTP_SESSION_INIT;
-      hsh_buffer_free(params->buffer, &params->server_memused);
-      params->request_timeout = HTTP_REQUEST_TIMEOUT;
-    } else {
-      // XXX end session event
-      params->after_event = HS_EVT_END_SESSION;
-    }
+    addr->sin_addr.s_addr = inet_addr(ipaddr);
+  }
+  addr->sin_port = htons(port);
+  int rc = bind(s, (struct sockaddr *)addr, sizeof(struct sockaddr_in));
+  if (rc < 0) {
+    exit(1);
   }
 }
 
-// void hs_handle_client_socket_event(http_request_t* request) {
-//   enum hs_event_e event = HS_EVT_NONE;
-// 
-//   if (request->state == HTTP_SESSION_READ) {
-//     hs_server_process_read_ready(params);
-//     event = params->after_event;
-//   } else if (request->state == HTTP_SESSION_WRITE) {
-//     hs_server_process_write_ready(params);
-//     event = params->after_event;
-//   }
-//   
-//   while (event != HS_EVT_NONE) {
-//     switch (event) {
-//       case HS_EVT_REQUEST_CALLBACK:
-//         // XXX gather input
-//         hs_server_exec_request_callback(params);
-//         // XXX store output
-//         event = params->after_event;
-//         break;
-//       case HS_EVT_BODY_CALLBACK:
-//         // XXX gather input
-//         hs_server_exec_body_callback(params);
-//         // XXX store output
-//         event = params->after_event;
-//         break;
-//       case HS_EVT_SOCKET_CLOSED:
-//         // XXX gather input
-//         hs_server_handle_early_socket_close(params);
-//         // XXX store output
-//         event = params->after_event;
-//         break;
-//       case HS_EVT_PARSER_ERR:
-//         // XXX gather input
-//         hs_server_handle_parser_error(params);
-//         // XXX store output
-//         event = params->after_event;
-//         break;
-//     }
-//   }
-// }
+#ifdef KQUEUE
+
+void _hs_add_server_sock_events(http_server_t* serv) {
+  struct kevent ev_set;
+  EV_SET(&ev_set, serv->socket, EVFILT_READ, EV_ADD | EV_CLEAR, 0, 0, serv);
+  kevent(serv->loop, &ev_set, 1, NULL, 0, NULL);
+}
+
+void _hs_server_init_events(http_server_t* serv, hs_evt_cb_t timer_cb) {
+  (void)timer_cb;
+  serv->loop = kqueue();
+  struct kevent ev_set;
+  EV_SET(&ev_set, 1, EVFILT_TIMER, EV_ADD | EV_ENABLE, NOTE_SECONDS, 1, serv);
+  kevent(serv->loop, &ev_set, 1, NULL, 0, NULL);
+}
+
+int hs_listen_loop(http_server_t* serv, const char* ipaddr) {
+  hs_listen_addr(serv, ipaddr);
+
+  struct kevent ev_list[1];
+
+  while (1) {
+    int nev = kevent(serv->loop, NULL, 0, ev_list, 1, NULL);
+    for (int i = 0; i < nev; i++) {
+      ev_cb_t* ev_cb = (ev_cb_t*)ev_list[i].udata;
+      ev_cb->handler(&ev_list[i]);
+    }
+  }
+  return 0;
+}
+
+int hs_poll(http_server_t* serv) {
+  struct kevent ev;
+  struct timespec ts = {0, 0};
+  int nev = kevent(serv->loop, NULL, 0, &ev, 1, &ts);
+  if (nev <= 0) return nev;
+  ev_cb_t* ev_cb = (ev_cb_t*)ev.udata;
+  ev_cb->handler(&ev);
+  return nev;
+}
+
+#else
+
+void _hs_server_init_events(http_server_t* serv, hs_evt_cb_t timer_cb) {
+  serv->loop = epoll_create1(0);
+  serv->timer_handler = timer_cb;
+
+  int tfd = timerfd_create(CLOCK_MONOTONIC, 0);
+  struct itimerspec ts = {};
+  ts.it_value.tv_sec = 1;
+  ts.it_interval.tv_sec = 1;
+  timerfd_settime(tfd, 0, &ts, NULL);
+
+  struct epoll_event ev;
+  ev.events = EPOLLIN | EPOLLET;
+  ev.data.ptr = &serv->timer_handler;
+  epoll_ctl(serv->loop, EPOLL_CTL_ADD, tfd, &ev);
+  serv->timerfd = tfd;
+}
+
+void _hs_add_server_sock_events(http_server_t* serv) {
+  struct epoll_event ev;
+  ev.events = EPOLLIN | EPOLLET;
+  ev.data.ptr = serv;
+  epoll_ctl(serv->loop, EPOLL_CTL_ADD, serv->socket, &ev);
+}
+
+int hs_listen_loop(http_server_t* serv, const char* ipaddr) {
+  hs_listen_addr(serv, ipaddr);
+  struct epoll_event ev_list[1];
+  while (1) {
+    int nev = epoll_wait(serv->loop, ev_list, 1, -1);
+    for (int i = 0; i < nev; i++) {
+      ev_cb_t* ev_cb = (ev_cb_t*)ev_list[i].data.ptr;
+      ev_cb->handler(&ev_list[i]);
+    }
+  }
+  return 0;
+}
+
+int hs_poll(http_server_t* serv) {
+  struct epoll_event ev;
+  int nev = epoll_wait(serv->loop, &ev, 1, 0);
+  if (nev <= 0) return nev;
+  ev_cb_t* ev_cb = (ev_cb_t*)ev.data.ptr;
+  ev_cb->handler(&ev);
+  return nev;
+}
+
+#endif
+
+void hs_listen_addr(http_server_t* serv, const char* ipaddr) {
+  // Ignore SIGPIPE. We handle these errors at the call site.
+  signal(SIGPIPE, SIG_IGN);
+  serv->socket = socket(AF_INET, SOCK_STREAM, 0);
+  int flag = 1;
+  setsockopt(serv->socket, SOL_SOCKET, SO_REUSEPORT, &flag, sizeof(flag));
+  _hs_bind_localhost(serv->socket, &serv->addr, ipaddr, serv->port);
+  serv->len = sizeof(serv->addr);
+  int flags = fcntl(serv->socket, F_GETFL, 0);
+  fcntl(serv->socket, F_SETFL, flags | O_NONBLOCK);
+  listen(serv->socket, 128);
+  _hs_add_server_sock_events(serv);
+}
+
+void hs_generate_date_time(char* datetime) {
+  time_t rawtime;
+  struct tm * timeinfo;
+  time(&rawtime);
+  timeinfo = gmtime(&rawtime);
+  strftime(datetime, 32, "%a, %d %b %Y %T GMT", timeinfo);
+}
+
+http_server_t* hs_server_init(int port, void (*handler)(http_request_t*), hs_evt_cb_t accept_cb, hs_evt_cb_t timer_cb) {
+  http_server_t* serv = (http_server_t*)malloc(sizeof(http_server_t));
+  assert(serv != NULL);
+  serv->port = port;
+  serv->memused = 0;
+  serv->handler = accept_cb;
+  _hs_server_init_events(serv, timer_cb);
+  hs_generate_date_time(serv->date);
+  serv->request_handler = handler;
+  return serv;
+}
+
