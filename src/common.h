@@ -28,19 +28,19 @@
 #endif
 
 #ifdef EPOLL
-typedef void (*epoll_cb_t)(struct epoll_event*);
+typedef void (*epoll_cb_t)(struct epoll_event *);
 #endif
 
 typedef struct http_ev_cb_s {
 #ifdef KQUEUE
-  void (*handler)(struct kevent* ev);
+  void (*handler)(struct kevent *ev);
 #else
   epoll_cb_t handler;
 #endif
 } ev_cb_t;
 
 struct hsh_buffer_s {
-  char* buf;
+  char *buf;
   int32_t capacity;
   int32_t length;
   int32_t index;
@@ -49,8 +49,14 @@ struct hsh_buffer_s {
 };
 
 enum hsh_token_e {
-  HSH_TOK_METHOD, HSH_TOK_TARGET, HSH_TOK_VERSION, HSH_TOK_HEADER_KEY,
-  HSH_TOK_HEADER_VALUE, HSH_TOK_HEADERS_DONE, HSH_TOK_BODY, HSH_TOK_NONE,
+  HSH_TOK_METHOD,
+  HSH_TOK_TARGET,
+  HSH_TOK_VERSION,
+  HSH_TOK_HEADER_KEY,
+  HSH_TOK_HEADER_VALUE,
+  HSH_TOK_HEADERS_DONE,
+  HSH_TOK_BODY,
+  HSH_TOK_NONE,
   HSH_TOK_ERR
 };
 
@@ -73,21 +79,21 @@ struct hsh_parser_s {
 };
 
 struct hs_token_array_s {
-  struct hsh_token_s* buf;
+  struct hsh_token_s *buf;
   int capacity;
   int size;
 };
 
 typedef struct http_request_s {
 #ifdef KQUEUE
-  void (*handler)(struct kevent* ev);
+  void (*handler)(struct kevent *ev);
 #else
   epoll_cb_t handler;
   epoll_cb_t timer_handler;
   int timerfd;
 #endif
-  void (*chunk_cb)(struct http_request_s*);
-  void* data;
+  void (*chunk_cb)(struct http_request_s *);
+  void *data;
   struct hsh_buffer_s buffer;
   struct hsh_parser_s parser;
   struct hs_token_array_s tokens;
@@ -95,13 +101,13 @@ typedef struct http_request_s {
   int socket;
   int timeout;
   int64_t bytes_written;
-  struct http_server_s* server;
+  struct http_server_s *server;
   char flags;
 } http_request_t;
 
 typedef struct http_server_s {
 #ifdef KQUEUE
-  void (*handler)(struct kevent* ev);
+  void (*handler)(struct kevent *ev);
 #else
   epoll_cb_t handler;
   epoll_cb_t timer_handler;
@@ -112,9 +118,9 @@ typedef struct http_server_s {
   int loop;
   int timerfd;
   socklen_t len;
-  void (*request_handler)(http_request_t*);
+  void (*request_handler)(http_request_t *);
   struct sockaddr_in addr;
-  void* data;
+  void *data;
   char date[32];
 } http_server_t;
 

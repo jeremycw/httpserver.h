@@ -1,14 +1,15 @@
-#include <stdlib.h>
-#include <fcntl.h>
-#include <time.h>
 #include <assert.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <time.h>
 
 #ifndef HTTPSERVER_IMPL
 #include "common.h"
 #include "server.h"
 #endif
 
-void _hs_bind_localhost(int s, struct sockaddr_in* addr, const char* ipaddr, int port) {
+void _hs_bind_localhost(int s, struct sockaddr_in *addr, const char *ipaddr,
+                        int port) {
   addr->sin_family = AF_INET;
   if (ipaddr == NULL) {
     addr->sin_addr.s_addr = INADDR_ANY;
@@ -24,13 +25,13 @@ void _hs_bind_localhost(int s, struct sockaddr_in* addr, const char* ipaddr, int
 
 #ifdef KQUEUE
 
-void _hs_add_server_sock_events(http_server_t* serv) {
+void _hs_add_server_sock_events(http_server_t *serv) {
   struct kevent ev_set;
   EV_SET(&ev_set, serv->socket, EVFILT_READ, EV_ADD | EV_CLEAR, 0, 0, serv);
   kevent(serv->loop, &ev_set, 1, NULL, 0, NULL);
 }
 
-void _hs_server_init_events(http_server_t* serv, hs_evt_cb_t timer_cb) {
+void _hs_server_init_events(http_server_t *serv, hs_evt_cb_t timer_cb) {
   (void)timer_cb;
   serv->loop = kqueue();
   struct kevent ev_set;
@@ -38,7 +39,7 @@ void _hs_server_init_events(http_server_t* serv, hs_evt_cb_t timer_cb) {
   kevent(serv->loop, &ev_set, 1, NULL, 0, NULL);
 }
 
-int hs_listen_loop(http_server_t* serv, const char* ipaddr) {
+int hs_listen_loop(http_server_t *serv, const char *ipaddr) {
   hs_listen_addr(serv, ipaddr);
 
   struct kevent ev_list[1];
@@ -46,26 +47,27 @@ int hs_listen_loop(http_server_t* serv, const char* ipaddr) {
   while (1) {
     int nev = kevent(serv->loop, NULL, 0, ev_list, 1, NULL);
     for (int i = 0; i < nev; i++) {
-      ev_cb_t* ev_cb = (ev_cb_t*)ev_list[i].udata;
+      ev_cb_t *ev_cb = (ev_cb_t *)ev_list[i].udata;
       ev_cb->handler(&ev_list[i]);
     }
   }
   return 0;
 }
 
-int hs_poll(http_server_t* serv) {
+int hs_poll(http_server_t *serv) {
   struct kevent ev;
   struct timespec ts = {0, 0};
   int nev = kevent(serv->loop, NULL, 0, &ev, 1, &ts);
-  if (nev <= 0) return nev;
-  ev_cb_t* ev_cb = (ev_cb_t*)ev.udata;
+  if (nev <= 0)
+    return nev;
+  ev_cb_t *ev_cb = (ev_cb_t *)ev.udata;
   ev_cb->handler(&ev);
   return nev;
 }
 
 #else
 
-void _hs_server_init_events(http_server_t* serv, hs_evt_cb_t timer_cb) {
+void _hs_server_init_events(http_server_t *serv, hs_evt_cb_t timer_cb) {
   serv->loop = epoll_create1(0);
   serv->timer_handler = timer_cb;
 
@@ -82,38 +84,39 @@ void _hs_server_init_events(http_server_t* serv, hs_evt_cb_t timer_cb) {
   serv->timerfd = tfd;
 }
 
-void _hs_add_server_sock_events(http_server_t* serv) {
+void _hs_add_server_sock_events(http_server_t *serv) {
   struct epoll_event ev;
   ev.events = EPOLLIN | EPOLLET;
   ev.data.ptr = serv;
   epoll_ctl(serv->loop, EPOLL_CTL_ADD, serv->socket, &ev);
 }
 
-int hs_listen_loop(http_server_t* serv, const char* ipaddr) {
+int hs_listen_loop(http_server_t *serv, const char *ipaddr) {
   hs_listen_addr(serv, ipaddr);
   struct epoll_event ev_list[1];
   while (1) {
     int nev = epoll_wait(serv->loop, ev_list, 1, -1);
     for (int i = 0; i < nev; i++) {
-      ev_cb_t* ev_cb = (ev_cb_t*)ev_list[i].data.ptr;
+      ev_cb_t *ev_cb = (ev_cb_t *)ev_list[i].data.ptr;
       ev_cb->handler(&ev_list[i]);
     }
   }
   return 0;
 }
 
-int hs_poll(http_server_t* serv) {
+int hs_poll(http_server_t *serv) {
   struct epoll_event ev;
   int nev = epoll_wait(serv->loop, &ev, 1, 0);
-  if (nev <= 0) return nev;
-  ev_cb_t* ev_cb = (ev_cb_t*)ev.data.ptr;
+  if (nev <= 0)
+    return nev;
+  ev_cb_t *ev_cb = (ev_cb_t *)ev.data.ptr;
   ev_cb->handler(&ev);
   return nev;
 }
 
 #endif
 
-void hs_listen_addr(http_server_t* serv, const char* ipaddr) {
+void hs_listen_addr(http_server_t *serv, const char *ipaddr) {
   // Ignore SIGPIPE. We handle these errors at the call site.
   signal(SIGPIPE, SIG_IGN);
   serv->socket = socket(AF_INET, SOCK_STREAM, 0);
@@ -127,16 +130,17 @@ void hs_listen_addr(http_server_t* serv, const char* ipaddr) {
   _hs_add_server_sock_events(serv);
 }
 
-void hs_generate_date_time(char* datetime) {
+void hs_generate_date_time(char *datetime) {
   time_t rawtime;
-  struct tm * timeinfo;
+  struct tm *timeinfo;
   time(&rawtime);
   timeinfo = gmtime(&rawtime);
   strftime(datetime, 32, "%a, %d %b %Y %T GMT", timeinfo);
 }
 
-http_server_t* hs_server_init(int port, void (*handler)(http_request_t*), hs_evt_cb_t accept_cb, hs_evt_cb_t timer_cb) {
-  http_server_t* serv = (http_server_t*)malloc(sizeof(http_server_t));
+http_server_t *hs_server_init(int port, void (*handler)(http_request_t *),
+                              hs_evt_cb_t accept_cb, hs_evt_cb_t timer_cb) {
+  http_server_t *serv = (http_server_t *)malloc(sizeof(http_server_t));
   assert(serv != NULL);
   serv->port = port;
   serv->memused = 0;
@@ -146,4 +150,3 @@ http_server_t* hs_server_init(int port, void (*handler)(http_request_t*), hs_evt
   serv->request_handler = handler;
   return serv;
 }
-

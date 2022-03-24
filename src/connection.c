@@ -1,38 +1,39 @@
-#include <stdlib.h>
-#include <unistd.h>
 #include <assert.h>
 #include <fcntl.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 #ifndef HTTPSERVER_IMPL
-#include "common.h"
 #include "buffer_util.h"
+#include "common.h"
 #include "connection.h"
 #endif
 
 #ifdef KQUEUE
 
-void _hs_delete_events(http_request_t* request) {
+void _hs_delete_events(http_request_t *request) {
   struct kevent ev_set;
   EV_SET(&ev_set, request->socket, EVFILT_TIMER, EV_DELETE, 0, 0, request);
   kevent(request->server->loop, &ev_set, 1, NULL, 0, NULL);
 }
 
-void _hs_add_events(http_request_t* request) {
+void _hs_add_events(http_request_t *request) {
   struct kevent ev_set[2];
   EV_SET(&ev_set[0], request->socket, EVFILT_READ, EV_ADD, 0, 0, request);
-  EV_SET(&ev_set[1], request->socket, EVFILT_TIMER, EV_ADD | EV_ENABLE, NOTE_SECONDS, 1, request);
+  EV_SET(&ev_set[1], request->socket, EVFILT_TIMER, EV_ADD | EV_ENABLE,
+         NOTE_SECONDS, 1, request);
   kevent(request->server->loop, ev_set, 2, NULL, 0, NULL);
 }
 
 #else
 
-void _hs_delete_events(http_request_t* request) {
+void _hs_delete_events(http_request_t *request) {
   epoll_ctl(event_loop, EPOLL_CTL_DEL, request->socket, NULL);
   epoll_ctl(event_loop, EPOLL_CTL_DEL, request->timerfd, NULL);
   close(request->timerfd);
 }
 
-void _hs_add_events(http_request_t* request) {
+void _hs_add_events(http_request_t *request) {
   request->timer_handler = hs_request_timer_cb;
 
   // Watch for read events
@@ -56,7 +57,7 @@ void _hs_add_events(http_request_t* request) {
 
 #endif
 
-void hs_terminate_connection(http_request_t* request) {
+void hs_terminate_connection(http_request_t *request) {
   _hs_delete_events(request);
   close(request->socket);
   _hs_buffer_free(&request->buffer, &request->server->memused);
@@ -65,17 +66,18 @@ void hs_terminate_connection(http_request_t* request) {
   free(request);
 }
 
-void _hs_token_array_init(struct hs_token_array_s* array, int capacity) {
-  array->buf = (struct hsh_token_s*)malloc(sizeof(struct hsh_token_s) * capacity);
+void _hs_token_array_init(struct hs_token_array_s *array, int capacity) {
+  array->buf =
+      (struct hsh_token_s *)malloc(sizeof(struct hsh_token_s) * capacity);
   assert(array->buf != NULL);
   array->size = 0;
   array->capacity = capacity;
 }
 
-void _hs_init_connection(http_request_t* connection) {
+void _hs_init_connection(http_request_t *connection) {
   connection->flags = HTTP_AUTOMATIC;
-  connection->parser = (struct hsh_parser_s){ };
-  connection->buffer = (struct hsh_buffer_s){ };
+  connection->parser = (struct hsh_parser_s){};
+  connection->buffer = (struct hsh_buffer_s){};
   if (connection->tokens.buf) {
     free(connection->tokens.buf);
     connection->tokens.buf = NULL;
@@ -83,12 +85,16 @@ void _hs_init_connection(http_request_t* connection) {
   _hs_token_array_init(&connection->tokens, 32);
 }
 
-void hs_accept_connections(http_server_t* server, hs_io_cb_t io_cb, void (*err_responder)(http_request_t*), int64_t max_mem_usage) {
+void hs_accept_connections(http_server_t *server, hs_io_cb_t io_cb,
+                           void (*err_responder)(http_request_t *),
+                           int64_t max_mem_usage) {
   int sock = 0;
   do {
-    sock = accept(server->socket, (struct sockaddr *)&server->addr, &server->len);
+    sock =
+        accept(server->socket, (struct sockaddr *)&server->addr, &server->len);
     if (sock > 0) {
-      http_request_t* connection = (http_request_t*)calloc(1, sizeof(http_request_t));
+      http_request_t *connection =
+          (http_request_t *)calloc(1, sizeof(http_request_t));
       assert(connection != NULL);
       connection->socket = sock;
       connection->server = server;

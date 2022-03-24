@@ -5,7 +5,8 @@ valgrind-results.txt
 *.dSYM/
 http-server-cpp
 test-results-cpp.txt
-http_parser.c
 http-server-unit
 a.out
 test/main.cpp
+src/parser.c
+hs-integration

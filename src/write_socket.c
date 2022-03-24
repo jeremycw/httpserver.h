@@ -1,6 +1,6 @@
+#include <errno.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <errno.h>
 #ifdef KQUEUE
 #include <sys/event.h>
 #else
@@ -8,24 +8,25 @@
 #endif
 
 #ifndef HTTPSERVER_IMPL
-#include "common.h"
 #include "buffer_util.h"
+#include "common.h"
 #include "write_socket.h"
 #endif
 
-void _hs_write_buffer_into_socket(struct hsh_buffer_s* buffer, int64_t* bytes_written, int request_socket) {
-  int bytes = write(
-    request_socket,
-    buffer->buf + *bytes_written,
-    buffer->length - *bytes_written
-  );
-  if (bytes > 0) *bytes_written += bytes;
+void _hs_write_buffer_into_socket(struct hsh_buffer_s *buffer,
+                                  int64_t *bytes_written, int request_socket) {
+  int bytes = write(request_socket, buffer->buf + *bytes_written,
+                    buffer->length - *bytes_written);
+  if (bytes > 0)
+    *bytes_written += bytes;
 }
 
-void _hs_add_write_event(int event_loop, int request_socket, void* request_ptr) {
+void _hs_add_write_event(int event_loop, int request_socket,
+                         void *request_ptr) {
 #ifdef KQUEUE
   struct kevent ev_set[2];
-  EV_SET(&ev_set[0], request_socket, EVFILT_WRITE, EV_ADD | EV_CLEAR, 0, 0, request_ptr);
+  EV_SET(&ev_set[0], request_socket, EVFILT_WRITE, EV_ADD | EV_CLEAR, 0, 0,
+         request_ptr);
   kevent(event_loop, ev_set, 2, NULL, 0, NULL);
 #else
   struct epoll_event ev;
@@ -44,10 +45,11 @@ void _hs_add_write_event(int event_loop, int request_socket, void* request_ptr) 
  *
  * @return Return code
  */
-enum hs_write_rc_e hs_write_socket(http_request_t* request) {
+enum hs_write_rc_e hs_write_socket(http_request_t *request) {
   enum hs_write_rc_e rc = HS_WRITE_RC_SUCCESS;
 
-  _hs_write_buffer_into_socket(&request->buffer, &request->bytes_written, request->socket);
+  _hs_write_buffer_into_socket(&request->buffer, &request->bytes_written,
+                               request->socket);
 
   if (errno == EPIPE) {
     rc = HS_WRITE_RC_SOCKET_ERR;
@@ -56,7 +58,8 @@ enum hs_write_rc_e hs_write_socket(http_request_t* request) {
       // All bytes of the body were not written and we need to wait until the
       // socket is writable again to complete the write
 
-      _hs_add_write_event(request->server->loop, request->socket, (void*)request);
+      _hs_add_write_event(request->server->loop, request->socket,
+                          (void *)request);
 
       request->state = HTTP_SESSION_WRITE;
       request->timeout = HTTP_REQUEST_TIMEOUT;

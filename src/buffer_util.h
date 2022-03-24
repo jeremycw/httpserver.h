@@ -3,7 +3,8 @@
 
 #include <stdlib.h>
 
-static inline void _hs_buffer_free(struct hsh_buffer_s* buffer, int64_t* memused) {
+static inline void _hs_buffer_free(struct hsh_buffer_s *buffer,
+                                   int64_t *memused) {
   if (buffer->buf) {
     free(buffer->buf);
     *memused -= buffer->capacity;

@@ -12,6 +12,6 @@ enum hs_write_rc_e {
   HS_WRITE_RC_SOCKET_ERR
 };
 
-enum hs_write_rc_e hs_write_socket(struct http_request_s* request);
+enum hs_write_rc_e hs_write_socket(struct http_request_s *request);
 
 #endif
