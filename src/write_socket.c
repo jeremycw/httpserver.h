@@ -36,15 +36,12 @@ void _hs_add_write_event(int event_loop, int request_socket,
 #endif
 }
 
-/* Writes response bytes from the buffer out to the socket.
- *
- * Runs when we get a socket ready to write event or when initiating an HTTP
- * response and writing to the socket for the first time.
- *
- * @param request The request to write
- *
- * @return Return code
- */
+// Writes response bytes from the buffer out to the socket.
+//
+// Runs when we get a socket ready to write event or when initiating an HTTP
+// response and writing to the socket for the first time. If the response is
+// chunked the chunk_cb callback will be invoked signalling to the user code
+// that another chunk is ready to be written.
 enum hs_write_rc_e hs_write_socket(http_request_t *request) {
   enum hs_write_rc_e rc = HS_WRITE_RC_SUCCESS;
 

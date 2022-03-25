@@ -163,6 +163,7 @@ void _http_end_response(http_request_t *request, http_response_t *response,
   http_write(request);
 }
 
+// See api.h http_response_header
 void hs_response_header(http_response_t *response, char const *key,
                         char const *value) {
   http_header_t *header = (http_header_t *)malloc(sizeof(http_header_t));
@@ -174,6 +175,8 @@ void hs_response_header(http_response_t *response, char const *key,
   response->headers = header;
 }
 
+// Serializes the response into the request buffer and calls http_write.
+// See api.h http_respond for more details
 void hs_respond(http_request_t *request, http_response_t *response,
                 hs_req_fn_t http_write) {
   grwprintf_t printctx;
@@ -185,6 +188,8 @@ void hs_respond(http_request_t *request, http_response_t *response,
   _http_end_response(request, response, &printctx, http_write);
 }
 
+// Serializes a chunk into the request buffer and calls http_write.
+// See api.h http_respond_chunk for more details.
 void hs_respond_chunk(http_request_t *request, http_response_t *response,
                       hs_req_fn_t cb, hs_req_fn_t http_write) {
   grwprintf_t printctx;
@@ -201,6 +206,8 @@ void hs_respond_chunk(http_request_t *request, http_response_t *response,
   _http_end_response(request, response, &printctx, http_write);
 }
 
+// Serializes the zero sized final chunk into the request buffer and calls
+// http_write. See api.h http_respond_chunk_end for more details.
 void hs_respond_chunk_end(http_request_t *request, http_response_t *response,
                           hs_req_fn_t http_write) {
   grwprintf_t printctx;
@@ -212,15 +219,18 @@ void hs_respond_chunk_end(http_request_t *request, http_response_t *response,
   _http_end_response(request, response, &printctx, http_write);
 }
 
+// See api.h http_response_status
 void hs_response_status(http_response_t *response, int status) {
   response->status = status > 599 || status < 100 ? 500 : status;
 }
 
+// See api.h http_response_body
 void hs_response_body(http_response_t *response, char const *body, int length) {
   response->body = body;
   response->content_length = length;
 }
 
+// See api.h http_response_init
 http_response_t *hs_response_init() {
   http_response_t *response =
       (http_response_t *)calloc(1, sizeof(http_response_t));
@@ -229,6 +239,7 @@ http_response_t *hs_response_init() {
   return response;
 }
 
+// Simple less flexible interface for responses, used for errors.
 void hs_respond_error(http_request_t *request, int code, char const *message,
                       hs_req_fn_t http_write) {
   struct http_response_s *response = hs_response_init();

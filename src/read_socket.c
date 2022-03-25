@@ -101,17 +101,14 @@ enum hs_read_rc_e _hs_parse(http_request_t *request,
   } while (1);
 }
 
-/* Reads the request socket if required and parses HTTP in a non-blocking
- * manner.
- *
- * This is called when a new connection is established and when a read ready
- * event occurs for the request socket.
- *
- * @param request The request to perform the read on.
- * @param opts Options for configuring the read.
- *
- * @return Return code to determine any execution issues.
- */
+// Reads the request socket if required and parses HTTP in a non-blocking
+// manner.
+//
+// It should be called when a new connection is established and when a read
+// ready event occurs for the request socket. It parses the HTTP request and
+// fills the tokens array of the request struct. It will also invoke the
+// request_hander callback and the chunk_cb callback in the appropriate
+// scenarios.
 enum hs_read_rc_e hs_read_socket(http_request_t *request,
                                  struct hs_read_opts_s opts) {
   request->state = HTTP_SESSION_READ;

@@ -38,5 +38,8 @@ src/parser.c: src/parser.rl
 test/integration/main.cpp: test/integration/main.c
 	cp test/integration/main.c test/integration/main.cpp
 
+check-format:
+	clang-format --style=LLVM --dry-run -Werror src/*.c
+
 clean:
 	@rm hs-* http-server* *.txt

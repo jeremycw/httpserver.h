@@ -3,6 +3,8 @@
 
 #include <stdlib.h>
 
+struct hsh_buffer_s;
+
 static inline void _hs_buffer_free(struct hsh_buffer_s *buffer,
                                    int64_t *memused) {
   if (buffer->buf) {
