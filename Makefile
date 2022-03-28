@@ -29,7 +29,7 @@ hs-integration-cpp: test/integration/main.cpp httpserver.h
 hs-unit: test/unit/main.c test/unit/test_parser.c test/unit/test_server.c src/http_parser.c src/server.c src/lib.c
 	$(CC) $(DEBUG_FLAGS) -Wall -Wextra test/unit/munit.c $^ -o hs-unit
 
-httpserver.h: httpserver.m4 src/*.c src/*.h
+httpserver.h: httpserver.m4 src/*.c src/*.h src/parser.c
 	m4 httpserver.m4 > httpserver.h
 
 src/parser.c: src/parser.rl
