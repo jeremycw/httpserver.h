@@ -10,3 +10,5 @@ a.out
 test/main.cpp
 src/parser.c
 hs-integration
+html
+latex
