@@ -486,11 +486,4 @@ int main() {
 
 #endif
 
-#ifdef __linux__
-#define EPOLL
-#define _POSIX_C_SOURCE 199309L
-#else
-#define KQUEUE
-#endif
-
 #endif

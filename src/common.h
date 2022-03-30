@@ -19,6 +19,13 @@
 #define HTTP_KEEP_ALIVE 1
 #define HTTP_CLOSE 0
 
+#ifdef __linux__
+#define EPOLL
+#define _POSIX_C_SOURCE 199309L
+#else
+#define KQUEUE
+#endif
+
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #ifdef KQUEUE

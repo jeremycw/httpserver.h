@@ -1,6 +1,8 @@
 #include <unistd.h>
 #include "munit.h"
-#include "../../src/http_parser.h"
+
+#include "../../src/common.h"
+#include "../../src/parser.h"
 
 void setup_buffer_and_parser(struct hsh_parser_s* parser, struct hsh_buffer_s* buffer, char const* req_str) {
   // setup parser

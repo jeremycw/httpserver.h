@@ -57,9 +57,6 @@ void _hs_mem_error_responder(http_request_t *request) {
 
 #ifdef KQUEUE
 
-/*
- *
- */
 void hs_connection_io_cb(struct kevent *ev) {
   http_request_t *request = (http_request_t *)ev->udata;
   if (ev->filter == EVFILT_TIMER) {
@@ -71,9 +68,6 @@ void hs_connection_io_cb(struct kevent *ev) {
   }
 }
 
-/*
- *
- */
 void hs_accept_cb(struct kevent *ev) {
   http_server_t *server = (http_server_t *)ev->udata;
   if (ev->filter == EVFILT_TIMER) {
@@ -86,24 +80,15 @@ void hs_accept_cb(struct kevent *ev) {
 
 #else
 
-/*
- *
- */
 void hs_connection_io_cb(struct epoll_event *ev) {
   _hs_connection_process_io((http_request_t *)ev->data.ptr);
 }
 
-/*
- *
- */
 void hs_accept_cb(struct epoll_event *ev) {
   hs_accept_connections((http_server_t *)ev->data.ptr, hs_connection_io_cb,
                         _hs_mem_error_responder);
 }
 
-/*
- *
- */
 void hs_server_timer_cb(struct epoll_event *ev) {
   http_server_t *server =
       (http_server_t *)((char *)ev->data.ptr - sizeof(epoll_cb_t));
@@ -113,9 +98,6 @@ void hs_server_timer_cb(struct epoll_event *ev) {
   hs_generate_date_time(server->date);
 }
 
-/*
- *
- */
 void hs_request_timer_cb(struct epoll_event *ev) {
   http_request_t *request =
       (http_request_t *)((char *)ev->data.ptr - sizeof(epoll_cb_t));

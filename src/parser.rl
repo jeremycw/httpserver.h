@@ -6,6 +6,7 @@
 #include <assert.h>
 
 #ifndef HTTPSERVER_IMPL
+#include "common.h"
 #include "parser.h"
 #endif
 

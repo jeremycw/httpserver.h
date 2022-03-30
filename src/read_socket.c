@@ -114,8 +114,6 @@ enum hs_read_rc_e hs_read_socket(http_request_t *request,
   request->state = HTTP_SESSION_READ;
   request->timeout = HTTP_REQUEST_TIMEOUT;
 
-  enum hs_read_rc_e rc = HS_READ_RC_SUCCESS;
-
   if (request->buffer.buf == NULL) {
     _hs_buffer_init(&request->buffer, opts.initial_request_buf_capacity);
   }
@@ -126,11 +124,9 @@ enum hs_read_rc_e hs_read_socket(http_request_t *request,
                                      opts.max_request_buf_capacity);
 
     if (bytes == opts.eof_rc) {
-      rc = HS_READ_RC_SOCKET_ERR;
+      return HS_READ_RC_SOCKET_ERR;
     }
-  } else {
-    rc = _hs_parse(request, opts.max_request_buf_capacity);
   }
 
-  return rc;
+  return _hs_parse(request, opts.max_request_buf_capacity);
 }
