@@ -116,6 +116,7 @@ enum hs_read_rc_e hs_read_socket(http_request_t *request,
 
   if (request->buffer.buf == NULL) {
     _hs_buffer_init(&request->buffer, opts.initial_request_buf_capacity);
+    hsh_parser_init(&request->parser);
   }
 
   if (_hs_buffer_requires_read(&request->buffer)) {
