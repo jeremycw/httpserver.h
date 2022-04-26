@@ -9,6 +9,8 @@ struct http_request_s;
 enum hs_write_rc_e {
   // Successful and has written the full response
   HS_WRITE_RC_SUCCESS,
+  // Successful and has written the full chunk
+  HS_WRITE_RC_SUCCESS_CHUNK,
   // Successful, has written the full response and the socket should be closed
   HS_WRITE_RC_SUCCESS_CLOSE,
   // Successful but has not written the full response, wait for write ready

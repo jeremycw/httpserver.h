@@ -3,7 +3,8 @@
 #line 1 "src/api.h"
 #ifndef HS_API_H
 #define HS_API_H
-/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+/** * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ * @file api.h
  *
  * MIT License
  *
@@ -100,181 +101,366 @@ struct http_server_s;
 struct http_request_s;
 struct http_response_s;
 
-// Returns the event loop id that the server is running on. This will be an
-// epoll fd when running on Linux or a kqueue on BSD. This can be used to
-// listen for activity on sockets, etc. The only caveat is that the user data
-// must be set to a struct where the first member is the function pointer to
-// a callback that will handle the event. i.e:
-//
-// For kevent:
-//
-//   struct foo {
-//     void (*handler)(struct kevent*);
-//     ...
-//   }
-//
-//   // Set ev.udata to a foo pointer when registering the event.
-//
-// For epoll:
-//
-//   struct foo {
-//     void (*handler)(struct epoll_event*);
-//     ...
-//   }
-//
-//   // Set ev.data.ptr to a foo pointer when registering the event.
+/**
+ * Get the event loop descriptor that the server is running on.
+ *
+ * This will be an epoll fd when running on Linux or a kqueue on BSD. This can
+ * be used to listen for activity on sockets, etc. The only caveat is that the
+ * user data must be set to a struct where the first member is the function
+ * pointer to a callback that will handle the event. i.e:
+ *
+ * For kevent:
+ *
+ *   struct foo {
+ *     void (*handler)(struct kevent*);
+ *     ...
+ *   }
+ *
+ *   // Set ev.udata to a foo pointer when registering the event.
+ *
+ * For epoll:
+ *
+ *   struct foo {
+ *     void (*handler)(struct epoll_event*);
+ *     ...
+ *   }
+ *
+ *   // Set ev.data.ptr to a foo pointer when registering the event.
+ *
+ * @param server The server.
+ *
+ * @return The descriptor of the event loop.
+ */
 int http_server_loop(struct http_server_s *server);
 
-// Allocates and initializes the http server. Takes a port and a function
-// pointer that is called to process requests.
+/**
+ * Allocates and initializes the http server.
+ *
+ * @param port The port to listen on.
+ * @param handler The callback that will fire to handle requests.
+ *
+ * @return Pointer to the allocated server.
+ */
 struct http_server_s *
 http_server_init(int port, void (*handler)(struct http_request_s *));
 
-// Stores a pointer for future retrieval. This is not used by the library in
-// any way and is strictly for you, the application programmer to make use
-// of.
-void http_server_set_userdata(struct http_server_s *server, void *data);
-
-// Starts the event loop and the server listening. During normal operation this
-// function will not return. Return value is the error code if the server fails
-// to start. By default it will listen on all interface. For the second variant
-// provide the IP address of the interface to listen on, or NULL for any.
-int http_server_listen(struct http_server_s *server);
+/**
+ * Listens on the server socket and starts an event loop.
+ *
+ * During normal operation this function will not return.
+ *
+ * @param server The server.
+ * @param ipaddr The ip to bind to if NULL binds to all interfaces.
+ *
+ * @return Error code if the server fails.
+ */
 int http_server_listen_addr(struct http_server_s *server, const char *ipaddr);
 
-// Use this listen call in place of the one above when you want to integrate
-// an http server into an existing application that has a loop already and you
-// want to use the polling functionality instead. This works well for
-// applications like games that have a constant update loop. By default it will
-// listen on all interface. For the second variant provide the IP address of
-// the interface to listen on, or NULL for any.
-int http_server_listen_poll(struct http_server_s *server);
+/**
+ * See http_server_listen_addr
+ */
+int http_server_listen(struct http_server_s *server);
+
+/**
+ * Poll the server socket on specific interface.
+ *
+ * Use this listen call in place of the one above when you want to integrate
+ * an http server into an existing application that has a loop already and you
+ * want to use the polling functionality instead. This works well for
+ * applications like games that have a constant update loop.
+ *
+ * @param server The server.
+ * @param ipaddr The ip to bind to if NULL bind to all.
+ *
+ * @return Error code if the poll fails.
+ */
 int http_server_listen_addr_poll(struct http_server_s *server,
                                  const char *ipaddr);
 
-// Call this function in your update loop. It will trigger the request handler
-// once if there is a request ready. Returns 1 if a request was handled and 0
-// if no requests were handled. It should be called in a loop until it returns
-// 0.
+/**
+ * Poll the server socket on all interfaces. See http_server_listen_addr_poll
+ *
+ * @param server The server.
+ *
+ * @return Error code if the poll fails.
+ */
+int http_server_listen_poll(struct http_server_s *server);
+/**
+ * Poll of the request sockets.
+ *
+ * Call this function in your update loop. It will trigger the request handler
+ * once if there is a request ready. It should be called in a loop until it
+ * returns 0.
+ *
+ * @param server The server.
+ *
+ * @return Returns 1 if a request was handled and 0 if no requests were handled.
+ */
 int http_server_poll(struct http_server_s *server);
 
-// Returns 1 if the flag is set and false otherwise. The flags that can be
-// queried are listed below:
-//
-// HTTP_FLG_STREAMED
-//
-//   This flag will be set when the request body is chunked or the body is too
-//   large to fit in memory are once. This means that the
-//   http_request_read_chunk function must be used to read the body piece by
-//   piece.
-//
+/**
+ * Check if a request flag is set.
+ *
+ * The flags that can be queried are listed below:
+ *
+ * HTTP_FLG_STREAMED
+ *
+ *   This flag will be set when the request body is chunked or the body is too
+ *   large to fit in memory are once. This means that the
+ *   http_request_read_chunk function must be used to read the body piece by
+ *   piece.
+ *
+ * @param request The request.
+ * @param flag One of the flags listed above.
+ *
+ * @return 1 or 0 if the flag is set or not respectively.
+ */
 int http_request_has_flag(struct http_request_s *request, int flag);
 
-// Returns the request method as it was read from the HTTP request line.
+/**
+ * Returns the request method as it was read from the HTTP request line.
+ *
+ * @param request The request.
+ *
+ * @return The HTTP method.
+ */
 struct http_string_s http_request_method(struct http_request_s *request);
 
-// Returns the full request target (url) as it was read from the HTTP request
-// line.
+/**
+ * Returns the full request target (url) from the HTTP request line.
+ *
+ * @param request The request.
+ *
+ * @return The target.
+ */
 struct http_string_s http_request_target(struct http_request_s *request);
 
-// Returns the request body. If no request body was sent buf and len of the
-// string will be set to 0.
+/**
+ * Retrieves the request body.
+ *
+ * @param request The request.
+ *
+ * @return The request body. If no request body was sent buf and len of the
+ *   string will be set to 0.
+ */
 struct http_string_s http_request_body(struct http_request_s *request);
 
-// Returns the request header value for the given header key. The key is case
-// insensitive.
+/**
+ * Returns the request header value for the given header key.
+ *
+ * @param request The request.
+ * @param key The case insensitive header key to search for.
+ *
+ * @return The value for the header matching the key. Will be length 0 if not
+ *   found.
+ */
 struct http_string_s http_request_header(struct http_request_s *request,
                                          char const *key);
 
-// Procedure used to iterate over all the request headers. iter should be
-// initialized to zero before calling. Each call will set key and val to the
-// key and value of the next header. Returns 0 when there are no more headers.
+/**
+ * Iterate over the request headers.
+ *
+ * Each call will set key and val to the key and value of the next header.
+ *
+ * @param request The request.
+ * @param[out] key The key of the header.
+ * @param[out] value The key of the header.
+ * @param[inout] iter Should be initialized to 0 before calling. Pass back in
+ *   with each consecutive call.
+ *
+ * @return 0 when there are no more headers.
+ */
 int http_request_iterate_headers(struct http_request_s *request,
                                  struct http_string_s *key,
                                  struct http_string_s *val, int *iter);
 
-// Retrieve the opaque data pointer that was set with http_request_set_userdata.
-void *http_request_userdata(struct http_request_s *request);
-
-// Retrieve the opaque data pointer that was set with http_server_set_userdata.
-void *http_request_server_userdata(struct http_request_s *request);
-
-// Stores a pointer for future retrieval. This is not used by the library in
-// any way and is strictly for you, the application programmer to make use
-// of.
+/**
+ * Stores an arbitrary userdata pointer for this request.
+ *
+ * This is not used by the library in any way and is strictly for you, the
+ * application programmer to make use of.
+ *
+ * @param request The request.
+ * @param data Opaque pointer to user data.
+ */
 void http_request_set_userdata(struct http_request_s *request, void *data);
 
-// By default the server will inspect the Connection header and the HTTP
-// version to determine whether the connection should be kept alive or not.
-// Use this function to override that behaviour to force the connection to
-// keep-alive or close by passing in the HTTP_KEEP_ALIVE or HTTP_CLOSE
-// directives respectively. This may provide a minor performance improvement
-// in cases where you control client and server and want to always close or
-// keep the connection alive.
+/**
+ * Retrieve the opaque data pointer that was set with http_request_set_userdata.
+ *
+ * @param request The request.
+ */
+void *http_request_userdata(struct http_request_s *request);
+
+/**
+ * Stores a server wide opaque pointer for future retrieval.
+ *
+ * This is not used by the library in any way and is strictly for you, the
+ * application programmer to make use of.
+ *
+ * @param server The server.
+ * @param data Opaque data pointer.
+ */
+void http_server_set_userdata(struct http_server_s *server, void *data);
+
+/**
+ * Retrieve the server wide userdata pointer.
+ *
+ * @param request The request.
+ */
+void *http_request_server_userdata(struct http_request_s *request);
+
+/**
+ * Sets how the request will handle it's connection
+ *
+ * By default the server will inspect the Connection header and the HTTP
+ * version to determine whether the connection should be kept alive or not.
+ * Use this function to override that behaviour to force the connection to
+ * keep-alive or close by passing in the HTTP_KEEP_ALIVE or HTTP_CLOSE
+ * directives respectively. This may provide a minor performance improvement
+ * in cases where you control client and server and want to always close or
+ * keep the connection alive.
+ *
+ * @param request The request.
+ * @param directive One of HTTP_KEEP_ALIVE or HTTP_CLOSE
+ */
 void http_request_connection(struct http_request_s *request, int directive);
 
-// When reading in the HTTP request the server allocates a buffer to store
-// the request details such as the headers, method, body, etc. By default this
-// memory will be freed when http_respond is called. This function lets you
-// free that memory before the http_respond call. This can be useful if you
-// have requests that take a long time to complete and you don't require the
-// request data. Accessing any http_string_s's will be invalid after this call.
+/**
+ * Frees the buffer of a request.
+ *
+ * When reading in the HTTP request the server allocates a buffer to store
+ * the request details such as the headers, method, body, etc. By default this
+ * memory will be freed when http_respond is called. This function lets you
+ * free that memory before the http_respond call. This can be useful if you
+ * have requests that take a long time to complete and you don't require the
+ * request data. Accessing any http_string_s's will be invalid after this call.
+ *
+ * @param request The request to free the buffer of.
+ */
 void http_request_free_buffer(struct http_request_s *request);
 
-// Allocates an http response. This memory will be freed when http_respond is
-// called.
+/**
+ * Allocates an http response.
+ *
+ * This memory will be freed when http_respond is called.
+ *
+ * @return Allocated response.
+ */
 struct http_response_s *http_response_init();
 
-// Set the response status. Accepts values between 100 and 599 inclusive. Any
-// other value will map to 500.
+/**
+ * Set the response status.
+ *
+ * Accepts values between 100 and 599 inclusive. Any other value will map to
+ * 500.
+ *
+ * @param response The response struct to set status on.
+ * @param status The HTTP status code.
+ */
 void http_response_status(struct http_response_s *response, int status);
 
-// Set a response header. Takes two null terminated strings.
+/**
+ * Sets an HTTP response header.
+ *
+ * @param response The response struct to set the header on.
+ * @param key The null-terminated key of the header eg: Content-Type
+ * @param value The null-terminated value of the header eg: application/json
+ */
 void http_response_header(struct http_response_s *response, char const *key,
                           char const *value);
 
-// Set the response body. The caller is responsible for freeing any memory that
-// may have been allocated for the body. It is safe to free this memory AFTER
-// http_respond has been called.
+/**
+ * Set the response body.
+ *
+ * The caller is responsible for freeing any memory that
+ * may have been allocated for the body. It is safe to free this memory AFTER
+ * http_respond has been called. If responding with chunked transfer encoding
+ * this will become a single chunk. This procedure can be used again to set
+ * subsequent chunks.
+ *
+ * @param response The response struct to set the body for.
+ * @param body The body of the response.
+ * @param length The length of the body
+ */
 void http_response_body(struct http_response_s *response, char const *body,
                         int length);
 
-// Starts writing the response to the client. Any memory allocated for the
-// response body or response headers is safe to free after this call.
+/**
+ * Starts writing the response to the client.
+ *
+ * Any memory allocated for the response body or response headers is safe to
+ * free after this call. Adds the default HTTP response headers, Date and
+ * Connection.
+ *
+ * @param request The request to respond to.
+ * @param response The response to respond with.
+ */
 void http_respond(struct http_request_s *request,
                   struct http_response_s *response);
 
-// Writes a chunk to the client. The notify_done callback will be called when
-// the write is complete. This call consumes the response so a new response
-// will need to be initialized for each chunk. The response status of the
-// request will be the response status that is set when http_respond_chunk is
-// called the first time. Any headers set for the first call will be sent as
-// the response headers. Headers set for subsequent calls will be ignored.
+/**
+ * Writes a chunk to the client.
+ *
+ * The notify_done callback will be called when the write is complete. This call
+ * consumes the response so a new response will need to be initialized for each
+ * chunk. The response status of the request will be the response status that is
+ * set when http_respond_chunk is called the first time. Any headers set for the
+ * first call will be sent as the response headers. Transfer-Encoding header
+ * will automatically be set to chunked. Headers set for subsequent calls will
+ * be ignored.
+ *
+ * @param request The request to respond to.
+ * @param response The response to respond with.
+ * @param notify_done The callback that's used to signal user code that another
+ *   chunk is ready to be written out.
+ */
 void http_respond_chunk(struct http_request_s *request,
                         struct http_response_s *response,
                         void (*notify_done)(struct http_request_s *));
 
-// Ends the chunked response. Any headers set before this call will be included
-// as what the HTTP spec refers to as 'trailers' which are essentially more
-// response headers.
+/**
+ * Ends the chunked response.
+ *
+ * Used to signal end of transmission on chunked requests. Any headers set
+ * before this call will be included as what the HTTP spec refers to as
+ * 'trailers' which are essentially more response headers.
+ *
+ * @param request The request to respond to.
+ * @param response  The response to respond with.
+ */
 void http_respond_chunk_end(struct http_request_s *request,
                             struct http_response_s *response);
 
-// If a request has Transfer-Encoding: chunked or the body is too big to fit in
-// memory all at once you cannot read the body in the typical way. Instead you
-// need to call this function to read one chunk at a time. To check if the
-// request requires this type of reading you can call the http_request_has_flag
-// function to check if the HTTP_FLG_STREAMED flag is set. To read a streamed
-// body you pass a callback that will be called when the chunk is ready. When
-// the callback is called you can use 'http_request_chunk' to get the current
-// chunk. When done with that chunk call this function again to request the
-// next chunk. If the chunk has size 0 then the request body has been completely
-// read and you can now respond.
+/**
+ * Read a chunk of the request body.
+ *
+ * If a request has Transfer-Encoding: chunked or the body is too big to fit in
+ * memory all at once you cannot read the body in the typical way. Instead you
+ * need to call this function to read one chunk at a time. To check if the
+ * request requires this type of reading you can call the http_request_has_flag
+ * function to check if the HTTP_FLG_STREAMED flag is set. To read a streamed
+ * body you pass a callback that will be called when the chunk is ready. When
+ * the callback is called you can use 'http_request_chunk' to get the current
+ * chunk. When done with that chunk call this function again to request the
+ * next chunk. If the chunk has size 0 then the request body has been completely
+ * read and you can now respond.
+ *
+ * @param request The request.
+ * @param chunk_cb Callback for when the chunk is ready.
+ */
 void http_request_read_chunk(struct http_request_s *request,
                              void (*chunk_cb)(struct http_request_s *));
 
-// Returns the current chunk of the request body. This chunk is only valid until
-// the next call to 'http_request_read_chunk'.
+/**
+ * Returns the current chunk of the request body.
+ *
+ * This chunk is only valid until the next call to 'http_request_read_chunk'.
+ *
+ * @param request The request.
+ *
+ * @return The chunk data.
+ */
 struct http_string_s http_request_chunk(struct http_request_s *request);
 
 #define http_request_read_body http_request_read_chunk
@@ -303,13 +489,6 @@ int main() {
 
 #endif
 
-#ifdef __linux__
-#define EPOLL
-#define _POSIX_C_SOURCE 199309L
-#else
-#define KQUEUE
-#endif
-
 #endif
 
 #line 1 "src/common.h"
@@ -333,6 +512,11 @@ int main() {
 
 #define HTTP_KEEP_ALIVE 1
 #define HTTP_CLOSE 0
+
+#ifdef __linux__
+#define _POSIX_C_SOURCE 199309L
+#else
+#endif
 
 #include <arpa/inet.h>
 #include <sys/socket.h>
@@ -447,6 +631,10 @@ typedef struct http_server_s {
 
 #include <stdlib.h>
 
+#ifndef HTTPSERVER_IMPL
+#include "common.h"
+#endif
+
 static inline void _hs_buffer_free(struct hsh_buffer_s *buffer,
                                    int64_t *memused) {
   if (buffer->buf) {
@@ -513,15 +701,26 @@ void hsh_parser_init(struct hsh_parser_s *parser);
 
 struct http_request_s;
 
+// Response code for hs_read_socket
 enum hs_read_rc_e {
+  // Execution was successful
   HS_READ_RC_SUCCESS,
+  // There was an error parsing the HTTP request
   HS_READ_RC_PARSE_ERR,
+  // There was an error reading the socket
   HS_READ_RC_SOCKET_ERR
 };
 
+// Holds configuration options for the hs_read_socket procedure.
 struct hs_read_opts_s {
+  // Restricts the request buffer from ever growing larger than this size
   int64_t max_request_buf_capacity;
+  // The value to be compared to the return of the read call to determine if
+  // the connection has been closed. Should generally be 0 in normal operation
+  // using sockets but can be useful to change if you want to use files instead
+  // of sockets for testing.
   int eof_rc;
+  // The initial capacity that is allocated for the request buffer
   int initial_request_buf_capacity;
 };
 
@@ -540,30 +739,41 @@ struct http_request_s;
 
 typedef void (*hs_req_fn_t)(struct http_request_s *);
 
+// Represents a single header of an HTTP response.
 typedef struct http_header_s {
+  // The key of the header eg: Content-Type
   char const *key;
+  // The value of the header eg: application/json
   char const *value;
+  // Pointer to the next header in the linked list.
   struct http_header_s *next;
 } http_header_t;
 
+// Represents the response of an HTTP request before it is serialized on the
+// wire.
 typedef struct http_response_s {
+  // Head of the linked list of response headers
   http_header_t *headers;
+  // The complete body of the response or the chunk if generating a chunked
+  // response.
   char const *body;
+  // The length of the body or chunk.
   int content_length;
+  // The HTTP status code for the response.
   int status;
 } http_response_t;
 
+http_response_t *hs_response_init();
 void hs_response_header(http_response_t *response, char const *key,
                         char const *value);
+void hs_response_status(http_response_t *response, int status);
+void hs_response_body(http_response_t *response, char const *body, int length);
 void hs_respond(struct http_request_s *request, http_response_t *response,
                 hs_req_fn_t http_write);
 void hs_respond_chunk(struct http_request_s *request, http_response_t *response,
                       hs_req_fn_t cb, hs_req_fn_t http_write);
 void hs_respond_chunk_end(struct http_request_s *request,
                           http_response_t *response, hs_req_fn_t http_write);
-void hs_response_status(http_response_t *response, int status);
-void hs_response_body(http_response_t *response, char const *body, int length);
-http_response_t *hs_response_init();
 void hs_respond_error(struct http_request_s *request, int code,
                       char const *message, hs_req_fn_t http_write);
 
@@ -601,10 +811,17 @@ int hs_poll(struct http_server_s *serv);
 
 struct http_request_s;
 
+// Response code for hs_write_socket
 enum hs_write_rc_e {
+  // Successful and has written the full response
   HS_WRITE_RC_SUCCESS,
+  // Successful and has written the full chunk
+  HS_WRITE_RC_SUCCESS_CHUNK,
+  // Successful, has written the full response and the socket should be closed
   HS_WRITE_RC_SUCCESS_CLOSE,
+  // Successful but has not written the full response, wait for write ready
   HS_WRITE_RC_CONTINUE,
+  // Error writing to the socket
   HS_WRITE_RC_SOCKET_ERR
 };
 
@@ -622,10 +839,35 @@ typedef void (*hs_io_cb_t)(struct kevent *ev);
 typedef void (*hs_io_cb_t)(struct epoll_event *ev);
 #endif
 
+// Forward declarations
 struct http_request_s;
 struct http_server_s;
 
+/* Closes the requests socket and frees its resources.
+ *
+ * Removes all event watchers from the request socket and frees any allocated
+ * buffers associated with the request struct.
+ *
+ * @param request The request to close
+ */
 void hs_terminate_connection(struct http_request_s *request);
+
+/* Accepts connections on the server socket in a loop until it would block.
+ *
+ * When a connection is accepted a request struct is allocated and initialized
+ * and the request socket is set to non-blocking mode. Event watchers are set
+ * on the socket to call io_cb with a read/write ready event occurs. If the
+ * server has reached max_mem_usage the err_responder function is called to
+ * handle the issue.
+ *
+ * @param server The http server struct.
+ * @param io_cb The callback function to respond to events on the request socket
+ * @param err_responder The procedure to call when memory usage has reached the
+ *   given limit. Typically this could respond with a 503 error and close the
+ *   connection.
+ * @param max_mem_usage The limit at which err_responder should be called
+ *   instead of regular operation.
+ */
 void hs_accept_connections(struct http_server_s *server, hs_io_cb_t io_cb,
                            void (*err_responder)(struct http_request_s *),
                            int64_t max_mem_usage);
@@ -909,13 +1151,15 @@ http_string_t hs_request_chunk(struct http_request_s *request) {
 #line 1 "src/parser.c"
 
 #line 1 "src/parser.rl"
-#include <assert.h>
-#include <stdint.h>
+#include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
+#include <assert.h>
 
 #ifndef HTTPSERVER_IMPL
+#include "common.h"
 #include "parser.h"
 #endif
 
@@ -923,175 +1167,333 @@ http_string_t hs_request_chunk(struct http_request_s *request) {
 #define HSH_P_FLAG_TOKEN_READY 0x2
 #define HSH_P_FLAG_DONE 0x4
 
-#define HSH_ENTER_TOKEN(tok_type, max_len)                                     \
-  parser->token.type = tok_type;                                               \
-  parser->token.index = p - buffer->buf;                                       \
-  parser->token.flags = 0;                                                     \
-  parser->limit_count = 0;                                                     \
+#define HSH_ENTER_TOKEN(tok_type, max_len) \
+  parser->token.type = tok_type; \
+  parser->token.index = p - buffer->buf; \
+  parser->token.flags = 0; \
+  parser->limit_count = 0; \
   parser->limit_max = max_len;
 
-#line 228 "src/parser.rl"
 
-#line 31 "src/parser.c"
+#line 234 "src/parser.rl"
+
+
+
+#line 32 "src/parser.c"
 static const char _hsh_http_actions[] = {
-    0, 1,  2,  1,  6,  1,  10, 1,  13, 1,  14, 1,  15, 1,  16, 1,  17, 1,  18,
-    2, 0,  10, 2,  1,  10, 2,  4,  10, 2,  5,  14, 2,  5,  16, 2,  5,  17, 2,
-    7, 10, 2,  8,  10, 2,  10, 11, 2,  12, 13, 2,  13, 14, 3,  3,  9,  10, 3,
-    4, 10, 6,  3,  7,  4,  10, 3,  9,  3,  10, 3,  13, 5,  14, 3,  13, 14, 12,
-    3, 14, 12, 13, 4,  5,  14, 12, 13, 4,  13, 5,  14, 12, 4,  14, 12, 13, 15};
+	0, 1, 2, 1, 6, 1, 10, 1, 
+	13, 1, 14, 1, 15, 1, 16, 1, 
+	17, 1, 18, 2, 0, 10, 2, 1, 
+	10, 2, 4, 10, 2, 5, 14, 2, 
+	5, 16, 2, 5, 17, 2, 7, 10, 
+	2, 8, 10, 2, 10, 11, 2, 12, 
+	13, 2, 13, 14, 3, 3, 9, 10, 
+	3, 4, 10, 6, 3, 7, 4, 10, 
+	3, 9, 3, 10, 3, 13, 5, 14, 
+	3, 13, 14, 12, 3, 14, 12, 13, 
+	4, 5, 14, 12, 13, 4, 13, 5, 
+	14, 12, 4, 14, 12, 13, 15
+};
 
 static const short _hsh_http_key_offsets[] = {
-    0,   0,   4,   9,   10,  11,  12,  13,  14,  15,  16,  17,  18,  20,
-    21,  22,  39,  53,  55,  58,  60,  61,  79,  94,  110, 126, 142, 158,
-    174, 190, 205, 221, 237, 253, 269, 285, 301, 315, 317, 322, 324, 328,
-    344, 360, 376, 392, 408, 424, 440, 455, 471, 487, 503, 519, 535, 551,
-    567, 583, 597, 599, 603, 606, 609, 612, 615, 618, 621, 622, 623, 624,
-    631, 632, 632, 633, 634, 635, 642, 643, 643, 644, 652, 661, 669, 677,
-    686, 688, 697, 698, 699, 699, 699, 713, 713, 713, 721, 729, 729, 729};
+	0, 0, 4, 9, 10, 11, 12, 13, 
+	14, 15, 16, 17, 18, 20, 21, 22, 
+	39, 53, 55, 58, 60, 61, 79, 94, 
+	110, 126, 142, 158, 174, 190, 205, 221, 
+	237, 253, 269, 285, 301, 315, 317, 322, 
+	324, 328, 344, 360, 376, 392, 408, 424, 
+	440, 455, 471, 487, 503, 519, 535, 551, 
+	567, 583, 597, 599, 603, 606, 609, 612, 
+	615, 618, 621, 622, 623, 624, 631, 632, 
+	632, 633, 634, 635, 642, 643, 643, 644, 
+	652, 661, 669, 677, 686, 688, 697, 698, 
+	699, 699, 699, 713, 713, 713, 721, 729, 
+	729, 729
+};
 
 static const char _hsh_http_trans_keys[] = {
-    65,  90,  97,  122, 32,  65,  90,  97,  122, 32,  32,  72,  84,  84,  80,
-    47,  49,  46,  48,  49,  13,  10,  9,   32,  34,  44,  47,  67,  84,  99,
-    116, 123, 125, 40,  41,  58,  64,  91,  93,  9,   32,  34,  44,  47,  58,
-    123, 125, 40,  41,  59,  64,  91,  93,  9,   32,  9,   13,  32,  10,  13,
-    10,  9,   13,  32,  34,  44,  47,  67,  84,  99,  116, 123, 125, 40,  41,
-    58,  64,  91,  93,  9,   10,  32,  34,  44,  47,  58,  123, 125, 40,  41,
-    59,  64,  91,  93,  9,   32,  34,  44,  47,  58,  79,  111, 123, 125, 40,
-    41,  59,  64,  91,  93,  9,   32,  34,  44,  47,  58,  78,  110, 123, 125,
-    40,  41,  59,  64,  91,  93,  9,   32,  34,  44,  47,  58,  84,  116, 123,
-    125, 40,  41,  59,  64,  91,  93,  9,   32,  34,  44,  47,  58,  69,  101,
-    123, 125, 40,  41,  59,  64,  91,  93,  9,   32,  34,  44,  47,  58,  78,
-    110, 123, 125, 40,  41,  59,  64,  91,  93,  9,   32,  34,  44,  47,  58,
-    84,  116, 123, 125, 40,  41,  59,  64,  91,  93,  9,   32,  34,  44,  45,
-    47,  58,  123, 125, 40,  41,  59,  64,  91,  93,  9,   32,  34,  44,  47,
-    58,  76,  108, 123, 125, 40,  41,  59,  64,  91,  93,  9,   32,  34,  44,
-    47,  58,  69,  101, 123, 125, 40,  41,  59,  64,  91,  93,  9,   32,  34,
-    44,  47,  58,  78,  110, 123, 125, 40,  41,  59,  64,  91,  93,  9,   32,
-    34,  44,  47,  58,  71,  103, 123, 125, 40,  41,  59,  64,  91,  93,  9,
-    32,  34,  44,  47,  58,  84,  116, 123, 125, 40,  41,  59,  64,  91,  93,
-    9,   32,  34,  44,  47,  58,  72,  104, 123, 125, 40,  41,  59,  64,  91,
-    93,  9,   32,  34,  44,  47,  58,  123, 125, 40,  41,  59,  64,  91,  93,
-    9,   32,  9,   13,  32,  48,  57,  10,  13,  10,  13,  48,  57,  9,   32,
-    34,  44,  47,  58,  82,  114, 123, 125, 40,  41,  59,  64,  91,  93,  9,
-    32,  34,  44,  47,  58,  65,  97,  123, 125, 40,  41,  59,  64,  91,  93,
-    9,   32,  34,  44,  47,  58,  78,  110, 123, 125, 40,  41,  59,  64,  91,
-    93,  9,   32,  34,  44,  47,  58,  83,  115, 123, 125, 40,  41,  59,  64,
-    91,  93,  9,   32,  34,  44,  47,  58,  70,  102, 123, 125, 40,  41,  59,
-    64,  91,  93,  9,   32,  34,  44,  47,  58,  69,  101, 123, 125, 40,  41,
-    59,  64,  91,  93,  9,   32,  34,  44,  47,  58,  82,  114, 123, 125, 40,
-    41,  59,  64,  91,  93,  9,   32,  34,  44,  45,  47,  58,  123, 125, 40,
-    41,  59,  64,  91,  93,  9,   32,  34,  44,  47,  58,  69,  101, 123, 125,
-    40,  41,  59,  64,  91,  93,  9,   32,  34,  44,  47,  58,  78,  110, 123,
-    125, 40,  41,  59,  64,  91,  93,  9,   32,  34,  44,  47,  58,  67,  99,
-    123, 125, 40,  41,  59,  64,  91,  93,  9,   32,  34,  44,  47,  58,  79,
-    111, 123, 125, 40,  41,  59,  64,  91,  93,  9,   32,  34,  44,  47,  58,
-    68,  100, 123, 125, 40,  41,  59,  64,  91,  93,  9,   32,  34,  44,  47,
-    58,  73,  105, 123, 125, 40,  41,  59,  64,  91,  93,  9,   32,  34,  44,
-    47,  58,  78,  110, 123, 125, 40,  41,  59,  64,  91,  93,  9,   32,  34,
-    44,  47,  58,  71,  103, 123, 125, 40,  41,  59,  64,  91,  93,  9,   32,
-    34,  44,  47,  58,  123, 125, 40,  41,  59,  64,  91,  93,  9,   32,  9,
-    13,  32,  99,  10,  13,  104, 10,  13,  117, 10,  13,  110, 10,  13,  107,
-    10,  13,  101, 10,  13,  100, 13,  10,  48,  13,  48,  57,  65,  70,  97,
-    102, 10,  13,  10,  48,  13,  48,  57,  65,  70,  97,  102, 10,  48,  13,
-    48,  49,  57,  65,  70,  97,  102, 10,  13,  48,  49,  57,  65,  70,  97,
-    102, 13,  48,  49,  57,  65,  70,  97,  102, 13,  48,  49,  57,  65,  70,
-    97,  102, 10,  13,  48,  49,  57,  65,  70,  97,  102, 13,  48,  10,  13,
-    48,  49,  57,  65,  70,  97,  102, 13,  10,  9,   32,  34,  44,  47,  58,
-    123, 125, 40,  41,  59,  64,  91,  93,  13,  48,  49,  57,  65,  70,  97,
-    102, 13,  48,  49,  57,  65,  70,  97,  102, 0};
+	65, 90, 97, 122, 32, 65, 90, 97, 
+	122, 32, 32, 72, 84, 84, 80, 47, 
+	49, 46, 48, 49, 13, 10, 9, 32, 
+	34, 44, 47, 67, 84, 99, 116, 123, 
+	125, 40, 41, 58, 64, 91, 93, 9, 
+	32, 34, 44, 47, 58, 123, 125, 40, 
+	41, 59, 64, 91, 93, 9, 32, 9, 
+	13, 32, 10, 13, 10, 9, 13, 32, 
+	34, 44, 47, 67, 84, 99, 116, 123, 
+	125, 40, 41, 58, 64, 91, 93, 9, 
+	10, 32, 34, 44, 47, 58, 123, 125, 
+	40, 41, 59, 64, 91, 93, 9, 32, 
+	34, 44, 47, 58, 79, 111, 123, 125, 
+	40, 41, 59, 64, 91, 93, 9, 32, 
+	34, 44, 47, 58, 78, 110, 123, 125, 
+	40, 41, 59, 64, 91, 93, 9, 32, 
+	34, 44, 47, 58, 84, 116, 123, 125, 
+	40, 41, 59, 64, 91, 93, 9, 32, 
+	34, 44, 47, 58, 69, 101, 123, 125, 
+	40, 41, 59, 64, 91, 93, 9, 32, 
+	34, 44, 47, 58, 78, 110, 123, 125, 
+	40, 41, 59, 64, 91, 93, 9, 32, 
+	34, 44, 47, 58, 84, 116, 123, 125, 
+	40, 41, 59, 64, 91, 93, 9, 32, 
+	34, 44, 45, 47, 58, 123, 125, 40, 
+	41, 59, 64, 91, 93, 9, 32, 34, 
+	44, 47, 58, 76, 108, 123, 125, 40, 
+	41, 59, 64, 91, 93, 9, 32, 34, 
+	44, 47, 58, 69, 101, 123, 125, 40, 
+	41, 59, 64, 91, 93, 9, 32, 34, 
+	44, 47, 58, 78, 110, 123, 125, 40, 
+	41, 59, 64, 91, 93, 9, 32, 34, 
+	44, 47, 58, 71, 103, 123, 125, 40, 
+	41, 59, 64, 91, 93, 9, 32, 34, 
+	44, 47, 58, 84, 116, 123, 125, 40, 
+	41, 59, 64, 91, 93, 9, 32, 34, 
+	44, 47, 58, 72, 104, 123, 125, 40, 
+	41, 59, 64, 91, 93, 9, 32, 34, 
+	44, 47, 58, 123, 125, 40, 41, 59, 
+	64, 91, 93, 9, 32, 9, 13, 32, 
+	48, 57, 10, 13, 10, 13, 48, 57, 
+	9, 32, 34, 44, 47, 58, 82, 114, 
+	123, 125, 40, 41, 59, 64, 91, 93, 
+	9, 32, 34, 44, 47, 58, 65, 97, 
+	123, 125, 40, 41, 59, 64, 91, 93, 
+	9, 32, 34, 44, 47, 58, 78, 110, 
+	123, 125, 40, 41, 59, 64, 91, 93, 
+	9, 32, 34, 44, 47, 58, 83, 115, 
+	123, 125, 40, 41, 59, 64, 91, 93, 
+	9, 32, 34, 44, 47, 58, 70, 102, 
+	123, 125, 40, 41, 59, 64, 91, 93, 
+	9, 32, 34, 44, 47, 58, 69, 101, 
+	123, 125, 40, 41, 59, 64, 91, 93, 
+	9, 32, 34, 44, 47, 58, 82, 114, 
+	123, 125, 40, 41, 59, 64, 91, 93, 
+	9, 32, 34, 44, 45, 47, 58, 123, 
+	125, 40, 41, 59, 64, 91, 93, 9, 
+	32, 34, 44, 47, 58, 69, 101, 123, 
+	125, 40, 41, 59, 64, 91, 93, 9, 
+	32, 34, 44, 47, 58, 78, 110, 123, 
+	125, 40, 41, 59, 64, 91, 93, 9, 
+	32, 34, 44, 47, 58, 67, 99, 123, 
+	125, 40, 41, 59, 64, 91, 93, 9, 
+	32, 34, 44, 47, 58, 79, 111, 123, 
+	125, 40, 41, 59, 64, 91, 93, 9, 
+	32, 34, 44, 47, 58, 68, 100, 123, 
+	125, 40, 41, 59, 64, 91, 93, 9, 
+	32, 34, 44, 47, 58, 73, 105, 123, 
+	125, 40, 41, 59, 64, 91, 93, 9, 
+	32, 34, 44, 47, 58, 78, 110, 123, 
+	125, 40, 41, 59, 64, 91, 93, 9, 
+	32, 34, 44, 47, 58, 71, 103, 123, 
+	125, 40, 41, 59, 64, 91, 93, 9, 
+	32, 34, 44, 47, 58, 123, 125, 40, 
+	41, 59, 64, 91, 93, 9, 32, 9, 
+	13, 32, 99, 10, 13, 104, 10, 13, 
+	117, 10, 13, 110, 10, 13, 107, 10, 
+	13, 101, 10, 13, 100, 13, 10, 48, 
+	13, 48, 57, 65, 70, 97, 102, 10, 
+	13, 10, 48, 13, 48, 57, 65, 70, 
+	97, 102, 10, 48, 13, 48, 49, 57, 
+	65, 70, 97, 102, 10, 13, 48, 49, 
+	57, 65, 70, 97, 102, 13, 48, 49, 
+	57, 65, 70, 97, 102, 13, 48, 49, 
+	57, 65, 70, 97, 102, 10, 13, 48, 
+	49, 57, 65, 70, 97, 102, 13, 48, 
+	10, 13, 48, 49, 57, 65, 70, 97, 
+	102, 13, 10, 9, 32, 34, 44, 47, 
+	58, 123, 125, 40, 41, 59, 64, 91, 
+	93, 13, 48, 49, 57, 65, 70, 97, 
+	102, 13, 48, 49, 57, 65, 70, 97, 
+	102, 0
+};
 
 static const char _hsh_http_single_lengths[] = {
-    0, 0,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  0,  1,  1,  11, 8,  2, 3, 2,
-    1, 12, 9,  10, 10, 10, 10, 10, 10, 9,  10, 10, 10, 10, 10, 10, 8,  2, 3, 2,
-    2, 10, 10, 10, 10, 10, 10, 10, 9,  10, 10, 10, 10, 10, 10, 10, 10, 8, 2, 4,
-    3, 3,  3,  3,  3,  3,  1,  1,  1,  1,  1,  0,  1,  1,  1,  1,  1,  0, 1, 2,
-    3, 2,  2,  3,  2,  3,  1,  1,  0,  0,  8,  0,  0,  2,  2,  0,  0,  0};
+	0, 0, 1, 1, 1, 1, 1, 1, 
+	1, 1, 1, 1, 0, 1, 1, 11, 
+	8, 2, 3, 2, 1, 12, 9, 10, 
+	10, 10, 10, 10, 10, 9, 10, 10, 
+	10, 10, 10, 10, 8, 2, 3, 2, 
+	2, 10, 10, 10, 10, 10, 10, 10, 
+	9, 10, 10, 10, 10, 10, 10, 10, 
+	10, 8, 2, 4, 3, 3, 3, 3, 
+	3, 3, 1, 1, 1, 1, 1, 0, 
+	1, 1, 1, 1, 1, 0, 1, 2, 
+	3, 2, 2, 3, 2, 3, 1, 1, 
+	0, 0, 8, 0, 0, 2, 2, 0, 
+	0, 0
+};
 
 static const char _hsh_http_range_lengths[] = {
-    0, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 3, 3, 0, 0, 0, 0, 3, 3, 3, 3,
-    3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 0, 1, 0, 1, 3, 3, 3, 3, 3, 3, 3, 3, 3,
-    3, 3, 3, 3, 3, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0,
-    3, 0, 0, 0, 3, 3, 3, 3, 3, 0, 3, 0, 0, 0, 0, 3, 0, 0, 3, 3, 0, 0, 0};
+	0, 2, 2, 0, 0, 0, 0, 0, 
+	0, 0, 0, 0, 1, 0, 0, 3, 
+	3, 0, 0, 0, 0, 3, 3, 3, 
+	3, 3, 3, 3, 3, 3, 3, 3, 
+	3, 3, 3, 3, 3, 0, 1, 0, 
+	1, 3, 3, 3, 3, 3, 3, 3, 
+	3, 3, 3, 3, 3, 3, 3, 3, 
+	3, 3, 0, 0, 0, 0, 0, 0, 
+	0, 0, 0, 0, 0, 3, 0, 0, 
+	0, 0, 0, 3, 0, 0, 0, 3, 
+	3, 3, 3, 3, 0, 3, 0, 0, 
+	0, 0, 3, 0, 0, 3, 3, 0, 
+	0, 0
+};
 
 static const short _hsh_http_index_offsets[] = {
-    0,   0,   3,   7,   9,   11,  13,  15,  17,  19,  21,  23,  25,  27,
-    29,  31,  46,  58,  61,  65,  68,  70,  86,  99,  113, 127, 141, 155,
-    169, 183, 196, 210, 224, 238, 252, 266, 280, 292, 295, 300, 303, 307,
-    321, 335, 349, 363, 377, 391, 405, 418, 432, 446, 460, 474, 488, 502,
-    516, 530, 542, 545, 550, 554, 558, 562, 566, 570, 574, 576, 578, 580,
-    585, 587, 588, 590, 592, 594, 599, 601, 602, 604, 610, 617, 623, 629,
-    636, 639, 646, 648, 650, 651, 652, 664, 665, 666, 672, 678, 679, 680};
+	0, 0, 3, 7, 9, 11, 13, 15, 
+	17, 19, 21, 23, 25, 27, 29, 31, 
+	46, 58, 61, 65, 68, 70, 86, 99, 
+	113, 127, 141, 155, 169, 183, 196, 210, 
+	224, 238, 252, 266, 280, 292, 295, 300, 
+	303, 307, 321, 335, 349, 363, 377, 391, 
+	405, 418, 432, 446, 460, 474, 488, 502, 
+	516, 530, 542, 545, 550, 554, 558, 562, 
+	566, 570, 574, 576, 578, 580, 585, 587, 
+	588, 590, 592, 594, 599, 601, 602, 604, 
+	610, 617, 623, 629, 636, 639, 646, 648, 
+	650, 651, 652, 664, 665, 666, 672, 678, 
+	679, 680
+};
 
 static const char _hsh_http_indicies[] = {
-    1,  1,  0,  2,  3,  3,   0,   0,   4,   6,   5,   7,   0,   8,   0,   9,
-    0,  10, 0,  11, 0,  12,  0,   13,  0,   14,  0,   15,  0,   16,  0,   0,
-    0,  0,  0,  0,  18, 19,  18,  19,  0,   0,   0,   0,   0,   17,  0,   0,
-    0,  0,  0,  21, 0,  0,   0,   0,   0,   20,  22,  22,  0,   24,  25,  24,
-    23, 0,  27, 26, 28, 0,   0,   30,  0,   0,   0,   0,   31,  32,  31,  32,
-    0,  0,  0,  0,  0,  29,  0,   33,  0,   0,   0,   0,   21,  0,   0,   0,
-    0,  0,  20, 0,  0,  0,   0,   0,   21,  34,  34,  0,   0,   0,   0,   0,
-    20, 0,  0,  0,  0,  0,   21,  35,  35,  0,   0,   0,   0,   0,   20,  0,
-    0,  0,  0,  0,  21, 36,  36,  0,   0,   0,   0,   0,   20,  0,   0,   0,
-    0,  0,  21, 37, 37, 0,   0,   0,   0,   0,   20,  0,   0,   0,   0,   0,
-    21, 38, 38, 0,  0,  0,   0,   0,   20,  0,   0,   0,   0,   0,   21,  39,
-    39, 0,  0,  0,  0,  0,   20,  0,   0,   0,   0,   40,  0,   21,  0,   0,
-    0,  0,  0,  20, 0,  0,   0,   0,   0,   21,  41,  41,  0,   0,   0,   0,
-    0,  20, 0,  0,  0,  0,   0,   21,  42,  42,  0,   0,   0,   0,   0,   20,
-    0,  0,  0,  0,  0,  21,  43,  43,  0,   0,   0,   0,   0,   20,  0,   0,
-    0,  0,  0,  21, 44, 44,  0,   0,   0,   0,   0,   20,  0,   0,   0,   0,
-    0,  21, 45, 45, 0,  0,   0,   0,   0,   20,  0,   0,   0,   0,   0,   21,
-    46, 46, 0,  0,  0,  0,   0,   20,  0,   0,   0,   0,   0,   47,  0,   0,
-    0,  0,  0,  20, 48, 48,  0,   49,  25,  49,  50,  23,  28,  27,  26,  0,
-    27, 51, 26, 0,  0,  0,   0,   0,   21,  52,  52,  0,   0,   0,   0,   0,
-    20, 0,  0,  0,  0,  0,   21,  53,  53,  0,   0,   0,   0,   0,   20,  0,
-    0,  0,  0,  0,  21, 54,  54,  0,   0,   0,   0,   0,   20,  0,   0,   0,
-    0,  0,  21, 55, 55, 0,   0,   0,   0,   0,   20,  0,   0,   0,   0,   0,
-    21, 56, 56, 0,  0,  0,   0,   0,   20,  0,   0,   0,   0,   0,   21,  57,
-    57, 0,  0,  0,  0,  0,   20,  0,   0,   0,   0,   0,   21,  58,  58,  0,
-    0,  0,  0,  0,  20, 0,   0,   0,   0,   59,  0,   21,  0,   0,   0,   0,
-    0,  20, 0,  0,  0,  0,   0,   21,  60,  60,  0,   0,   0,   0,   0,   20,
-    0,  0,  0,  0,  0,  21,  61,  61,  0,   0,   0,   0,   0,   20,  0,   0,
-    0,  0,  0,  21, 62, 62,  0,   0,   0,   0,   0,   20,  0,   0,   0,   0,
-    0,  21, 63, 63, 0,  0,   0,   0,   0,   20,  0,   0,   0,   0,   0,   21,
-    64, 64, 0,  0,  0,  0,   0,   20,  0,   0,   0,   0,   0,   21,  65,  65,
-    0,  0,  0,  0,  0,  20,  0,   0,   0,   0,   0,   21,  66,  66,  0,   0,
-    0,  0,  0,  20, 0,  0,   0,   0,   0,   21,  67,  67,  0,   0,   0,   0,
-    0,  20, 0,  0,  0,  0,   0,   68,  0,   0,   0,   0,   0,   20,  69,  69,
-    0,  70, 25, 70, 71, 23,  0,   27,  72,  26,  0,   27,  73,  26,  0,   27,
-    74, 26, 0,  27, 75, 26,  0,   27,  76,  26,  0,   27,  77,  26,  78,  0,
-    79, 0,  81, 80, 82, 83,  83,  83,  0,   84,  0,   85,  86,  0,   87,  0,
-    89, 88, 90, 91, 91, 91,  0,   92,  0,   93,  95,  94,  96,  97,  98,  98,
-    98, 94, 99, 96, 97, 98,  98,  98,  94,  101, 102, 103, 103, 103, 100, 104,
-    97, 98, 98, 98, 94, 105, 96,  97,  98,  98,  98,  94,  106, 95,  94,  107,
-    96, 97, 98, 98, 98, 94,  108, 0,   109, 0,   110, 111, 0,   0,   0,   0,
-    0,  21, 0,  0,  0,  0,   0,   20,  112, 0,   101, 102, 103, 103, 103, 100,
-    96, 97, 98, 98, 98, 94,  0,   113, 114, 0};
+	1, 1, 0, 2, 3, 3, 0, 0, 
+	4, 6, 5, 7, 0, 8, 0, 9, 
+	0, 10, 0, 11, 0, 12, 0, 13, 
+	0, 14, 0, 15, 0, 16, 0, 0, 
+	0, 0, 0, 0, 18, 19, 18, 19, 
+	0, 0, 0, 0, 0, 17, 0, 0, 
+	0, 0, 0, 21, 0, 0, 0, 0, 
+	0, 20, 22, 22, 0, 24, 25, 24, 
+	23, 0, 27, 26, 28, 0, 0, 30, 
+	0, 0, 0, 0, 31, 32, 31, 32, 
+	0, 0, 0, 0, 0, 29, 0, 33, 
+	0, 0, 0, 0, 21, 0, 0, 0, 
+	0, 0, 20, 0, 0, 0, 0, 0, 
+	21, 34, 34, 0, 0, 0, 0, 0, 
+	20, 0, 0, 0, 0, 0, 21, 35, 
+	35, 0, 0, 0, 0, 0, 20, 0, 
+	0, 0, 0, 0, 21, 36, 36, 0, 
+	0, 0, 0, 0, 20, 0, 0, 0, 
+	0, 0, 21, 37, 37, 0, 0, 0, 
+	0, 0, 20, 0, 0, 0, 0, 0, 
+	21, 38, 38, 0, 0, 0, 0, 0, 
+	20, 0, 0, 0, 0, 0, 21, 39, 
+	39, 0, 0, 0, 0, 0, 20, 0, 
+	0, 0, 0, 40, 0, 21, 0, 0, 
+	0, 0, 0, 20, 0, 0, 0, 0, 
+	0, 21, 41, 41, 0, 0, 0, 0, 
+	0, 20, 0, 0, 0, 0, 0, 21, 
+	42, 42, 0, 0, 0, 0, 0, 20, 
+	0, 0, 0, 0, 0, 21, 43, 43, 
+	0, 0, 0, 0, 0, 20, 0, 0, 
+	0, 0, 0, 21, 44, 44, 0, 0, 
+	0, 0, 0, 20, 0, 0, 0, 0, 
+	0, 21, 45, 45, 0, 0, 0, 0, 
+	0, 20, 0, 0, 0, 0, 0, 21, 
+	46, 46, 0, 0, 0, 0, 0, 20, 
+	0, 0, 0, 0, 0, 47, 0, 0, 
+	0, 0, 0, 20, 48, 48, 0, 49, 
+	25, 49, 50, 23, 28, 27, 26, 0, 
+	27, 51, 26, 0, 0, 0, 0, 0, 
+	21, 52, 52, 0, 0, 0, 0, 0, 
+	20, 0, 0, 0, 0, 0, 21, 53, 
+	53, 0, 0, 0, 0, 0, 20, 0, 
+	0, 0, 0, 0, 21, 54, 54, 0, 
+	0, 0, 0, 0, 20, 0, 0, 0, 
+	0, 0, 21, 55, 55, 0, 0, 0, 
+	0, 0, 20, 0, 0, 0, 0, 0, 
+	21, 56, 56, 0, 0, 0, 0, 0, 
+	20, 0, 0, 0, 0, 0, 21, 57, 
+	57, 0, 0, 0, 0, 0, 20, 0, 
+	0, 0, 0, 0, 21, 58, 58, 0, 
+	0, 0, 0, 0, 20, 0, 0, 0, 
+	0, 59, 0, 21, 0, 0, 0, 0, 
+	0, 20, 0, 0, 0, 0, 0, 21, 
+	60, 60, 0, 0, 0, 0, 0, 20, 
+	0, 0, 0, 0, 0, 21, 61, 61, 
+	0, 0, 0, 0, 0, 20, 0, 0, 
+	0, 0, 0, 21, 62, 62, 0, 0, 
+	0, 0, 0, 20, 0, 0, 0, 0, 
+	0, 21, 63, 63, 0, 0, 0, 0, 
+	0, 20, 0, 0, 0, 0, 0, 21, 
+	64, 64, 0, 0, 0, 0, 0, 20, 
+	0, 0, 0, 0, 0, 21, 65, 65, 
+	0, 0, 0, 0, 0, 20, 0, 0, 
+	0, 0, 0, 21, 66, 66, 0, 0, 
+	0, 0, 0, 20, 0, 0, 0, 0, 
+	0, 21, 67, 67, 0, 0, 0, 0, 
+	0, 20, 0, 0, 0, 0, 0, 68, 
+	0, 0, 0, 0, 0, 20, 69, 69, 
+	0, 70, 25, 70, 71, 23, 0, 27, 
+	72, 26, 0, 27, 73, 26, 0, 27, 
+	74, 26, 0, 27, 75, 26, 0, 27, 
+	76, 26, 0, 27, 77, 26, 78, 0, 
+	79, 0, 81, 80, 82, 83, 83, 83, 
+	0, 84, 0, 85, 86, 0, 87, 0, 
+	89, 88, 90, 91, 91, 91, 0, 92, 
+	0, 93, 95, 94, 96, 97, 98, 98, 
+	98, 94, 99, 96, 97, 98, 98, 98, 
+	94, 101, 102, 103, 103, 103, 100, 104, 
+	97, 98, 98, 98, 94, 105, 96, 97, 
+	98, 98, 98, 94, 106, 95, 94, 107, 
+	96, 97, 98, 98, 98, 94, 108, 0, 
+	109, 0, 110, 111, 0, 0, 0, 0, 
+	0, 21, 0, 0, 0, 0, 0, 20, 
+	112, 0, 101, 102, 103, 103, 103, 100, 
+	96, 97, 98, 98, 98, 94, 0, 113, 
+	114, 0
+};
 
 static const char _hsh_http_trans_targs[] = {
-    0,  2,  3,  2,  4,  4,  5,  6,  7,  8,  9,  10, 11, 12, 13, 14, 15,
-    16, 23, 41, 16, 17, 18, 19, 18, 39, 19, 20, 21, 16, 22, 23, 41, 90,
-    24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 38, 40,
-    40, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57,
-    58, 59, 59, 60, 61, 62, 63, 64, 65, 19, 67, 68, 69, 72, 70, 69, 71,
-    91, 73, 92, 75, 86, 76, 75, 77, 78, 79, 84, 80, 82, 79, 81, 79, 80,
-    82, 79, 83, 93, 85, 94, 87, 95, 96, 97, 91, 96, 97};
+	0, 2, 3, 2, 4, 4, 5, 6, 
+	7, 8, 9, 10, 11, 12, 13, 14, 
+	15, 16, 23, 41, 16, 17, 18, 19, 
+	18, 39, 19, 20, 21, 16, 22, 23, 
+	41, 90, 24, 25, 26, 27, 28, 29, 
+	30, 31, 32, 33, 34, 35, 36, 37, 
+	38, 38, 40, 40, 42, 43, 44, 45, 
+	46, 47, 48, 49, 50, 51, 52, 53, 
+	54, 55, 56, 57, 58, 59, 59, 60, 
+	61, 62, 63, 64, 65, 19, 67, 68, 
+	69, 72, 70, 69, 71, 91, 73, 92, 
+	75, 86, 76, 75, 77, 78, 79, 84, 
+	80, 82, 79, 81, 79, 80, 82, 79, 
+	83, 93, 85, 94, 87, 95, 96, 97, 
+	91, 96, 97
+};
 
 static const char _hsh_http_trans_actions[] = {
-    17, 19, 3,  5,  22, 5,  3,  1,  0,  0,  0, 0,  0,  0,  0,  3,  0,
-    64, 64, 64, 5,  3,  0,  25, 25, 56, 5,  3, 5,  52, 52, 52, 52, 43,
-    5,  5,  5,  5,  5,  5,  5,  5,  5,  5,  5, 5,  5,  3,  0,  25, 60,
-    37, 5,  5,  5,  5,  5,  5,  5,  5,  5,  5, 5,  5,  5,  5,  5,  5,
-    3,  0,  25, 25, 5,  5,  5,  5,  5,  40, 0, 0,  46, 0,  0,  7,  0,
-    28, 0,  11, 46, 0,  0,  7,  0,  28, 76, 9, 76, 49, 72, 76, 80, 80,
-    68, 85, 76, 90, 76, 90, 0,  11, 31, 34, 9, 13, 15};
+	17, 19, 3, 5, 22, 5, 3, 1, 
+	0, 0, 0, 0, 0, 0, 0, 3, 
+	0, 64, 64, 64, 5, 3, 0, 25, 
+	25, 56, 5, 3, 5, 52, 52, 52, 
+	52, 43, 5, 5, 5, 5, 5, 5, 
+	5, 5, 5, 5, 5, 5, 5, 3, 
+	0, 25, 60, 37, 5, 5, 5, 5, 
+	5, 5, 5, 5, 5, 5, 5, 5, 
+	5, 5, 5, 5, 3, 0, 25, 25, 
+	5, 5, 5, 5, 5, 40, 0, 0, 
+	46, 0, 0, 7, 0, 28, 0, 11, 
+	46, 0, 0, 7, 0, 28, 76, 9, 
+	76, 49, 72, 76, 80, 80, 68, 85, 
+	76, 90, 76, 90, 0, 11, 31, 34, 
+	9, 13, 15
+};
 
 static const char _hsh_http_eof_actions[] = {
-    0,  17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17,
-    17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17,
-    17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17,
-    17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17,
-    17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17,
-    17, 17, 17, 0,  0,  0,  0,  0,  0,  0,  0,  0,  0};
+	0, 17, 17, 17, 17, 17, 17, 17, 
+	17, 17, 17, 17, 17, 17, 17, 17, 
+	17, 17, 17, 17, 17, 17, 17, 17, 
+	17, 17, 17, 17, 17, 17, 17, 17, 
+	17, 17, 17, 17, 17, 17, 17, 17, 
+	17, 17, 17, 17, 17, 17, 17, 17, 
+	17, 17, 17, 17, 17, 17, 17, 17, 
+	17, 17, 17, 17, 17, 17, 17, 17, 
+	17, 17, 17, 17, 17, 17, 17, 17, 
+	17, 17, 17, 17, 17, 17, 17, 17, 
+	17, 17, 17, 17, 17, 17, 17, 17, 
+	0, 0, 0, 0, 0, 0, 0, 0, 
+	0, 0
+};
 
 static const int hsh_http_start = 1;
 static const int hsh_http_first_final = 90;
@@ -1103,365 +1505,331 @@ static const int hsh_http_en_small_body = 88;
 static const int hsh_http_en_large_body = 89;
 static const int hsh_http_en_main = 1;
 
-#line 231 "src/parser.rl"
 
-void hsh_parser_init(struct hsh_parser_s *parser) {
+#line 237 "src/parser.rl"
+
+void hsh_parser_init(struct hsh_parser_s* parser) {
   memset(parser, 0, sizeof(struct hsh_parser_s));
   parser->state = hsh_http_start;
 }
 
-struct hsh_token_s hsh_parser_exec(struct hsh_parser_s *parser,
-                                   struct hsh_buffer_s *buffer,
-                                   int max_buf_capacity) {
+struct hsh_token_s hsh_parser_exec(struct hsh_parser_s* parser, struct hsh_buffer_s* buffer, int max_buf_capacity) {
   struct hsh_token_s none = {};
   none.type = HSH_TOK_NONE;
-  if (HTTP_FLAG_CHECK(parser->flags, HSH_P_FLAG_DONE) ||
-      parser->sequence_id == buffer->sequence_id) {
+  if (HTTP_FLAG_CHECK(parser->flags, HSH_P_FLAG_DONE) || parser->sequence_id == buffer->sequence_id) {
     return none;
   }
   int cs = parser->state;
-  char *eof = NULL;
+  char* eof = NULL;
   char *p = buffer->buf + buffer->index;
   char *pe = buffer->buf + buffer->length;
+  
+#line 377 "src/parser.c"
+	{
+	int _klen;
+	unsigned int _trans;
+	const char *_acts;
+	unsigned int _nacts;
+	const char *_keys;
 
-#line 376 "src/parser.c"
-  {
-    int _klen;
-    unsigned int _trans;
-    const char *_acts;
-    unsigned int _nacts;
-    const char *_keys;
+	if ( p == pe )
+		goto _test_eof;
+	if ( cs == 0 )
+		goto _out;
+_resume:
+	_keys = _hsh_http_trans_keys + _hsh_http_key_offsets[cs];
+	_trans = _hsh_http_index_offsets[cs];
 
-    if (p == pe)
-      goto _test_eof;
-    if (cs == 0)
-      goto _out;
-  _resume:
-    _keys = _hsh_http_trans_keys + _hsh_http_key_offsets[cs];
-    _trans = _hsh_http_index_offsets[cs];
+	_klen = _hsh_http_single_lengths[cs];
+	if ( _klen > 0 ) {
+		const char *_lower = _keys;
+		const char *_mid;
+		const char *_upper = _keys + _klen - 1;
+		while (1) {
+			if ( _upper < _lower )
+				break;
 
-    _klen = _hsh_http_single_lengths[cs];
-    if (_klen > 0) {
-      const char *_lower = _keys;
-      const char *_mid;
-      const char *_upper = _keys + _klen - 1;
-      while (1) {
-        if (_upper < _lower)
-          break;
+			_mid = _lower + ((_upper-_lower) >> 1);
+			if ( (*p) < *_mid )
+				_upper = _mid - 1;
+			else if ( (*p) > *_mid )
+				_lower = _mid + 1;
+			else {
+				_trans += (unsigned int)(_mid - _keys);
+				goto _match;
+			}
+		}
+		_keys += _klen;
+		_trans += _klen;
+	}
 
-        _mid = _lower + ((_upper - _lower) >> 1);
-        if ((*p) < *_mid)
-          _upper = _mid - 1;
-        else if ((*p) > *_mid)
-          _lower = _mid + 1;
-        else {
-          _trans += (unsigned int)(_mid - _keys);
-          goto _match;
-        }
-      }
-      _keys += _klen;
-      _trans += _klen;
-    }
+	_klen = _hsh_http_range_lengths[cs];
+	if ( _klen > 0 ) {
+		const char *_lower = _keys;
+		const char *_mid;
+		const char *_upper = _keys + (_klen<<1) - 2;
+		while (1) {
+			if ( _upper < _lower )
+				break;
 
-    _klen = _hsh_http_range_lengths[cs];
-    if (_klen > 0) {
-      const char *_lower = _keys;
-      const char *_mid;
-      const char *_upper = _keys + (_klen << 1) - 2;
-      while (1) {
-        if (_upper < _lower)
-          break;
+			_mid = _lower + (((_upper-_lower) >> 1) & ~1);
+			if ( (*p) < _mid[0] )
+				_upper = _mid - 2;
+			else if ( (*p) > _mid[1] )
+				_lower = _mid + 2;
+			else {
+				_trans += (unsigned int)((_mid - _keys)>>1);
+				goto _match;
+			}
+		}
+		_trans += _klen;
+	}
 
-        _mid = _lower + (((_upper - _lower) >> 1) & ~1);
-        if ((*p) < _mid[0])
-          _upper = _mid - 2;
-        else if ((*p) > _mid[1])
-          _lower = _mid + 2;
-        else {
-          _trans += (unsigned int)((_mid - _keys) >> 1);
-          goto _match;
-        }
-      }
-      _trans += _klen;
-    }
+_match:
+	_trans = _hsh_http_indicies[_trans];
+	cs = _hsh_http_trans_targs[_trans];
 
-  _match:
-    _trans = _hsh_http_indicies[_trans];
-    cs = _hsh_http_trans_targs[_trans];
+	if ( _hsh_http_trans_actions[_trans] == 0 )
+		goto _again;
 
-    if (_hsh_http_trans_actions[_trans] == 0)
-      goto _again;
-
-    _acts = _hsh_http_actions + _hsh_http_trans_actions[_trans];
-    _nacts = (unsigned int)*_acts++;
-    while (_nacts-- > 0) {
-      switch (*_acts++) {
-      case 0:
-#line 26 "src/parser.rl"
-      {
-        HSH_ENTER_TOKEN(HSH_TOK_METHOD, 32)
-      } break;
-      case 1:
+	_acts = _hsh_http_actions + _hsh_http_trans_actions[_trans];
+	_nacts = (unsigned int) *_acts++;
+	while ( _nacts-- > 0 )
+	{
+		switch ( *_acts++ )
+		{
+	case 0:
 #line 27 "src/parser.rl"
-      {
-        HSH_ENTER_TOKEN(HSH_TOK_TARGET, 1024)
-      } break;
-      case 2:
+	{ HSH_ENTER_TOKEN(HSH_TOK_METHOD, 32) }
+	break;
+	case 1:
 #line 28 "src/parser.rl"
-      {
-        HSH_ENTER_TOKEN(HSH_TOK_VERSION, 16)
-      } break;
-      case 3:
+	{ HSH_ENTER_TOKEN(HSH_TOK_TARGET, 1024) }
+	break;
+	case 2:
 #line 29 "src/parser.rl"
-      {
-        HSH_ENTER_TOKEN(HSH_TOK_HEADER_KEY, 256)
-      } break;
-      case 4:
+	{ HSH_ENTER_TOKEN(HSH_TOK_VERSION, 16) }
+	break;
+	case 3:
 #line 30 "src/parser.rl"
-      {
-        HSH_ENTER_TOKEN(HSH_TOK_HEADER_VALUE, 4096)
-      } break;
-      case 5:
+	{ HSH_ENTER_TOKEN(HSH_TOK_HEADER_KEY, 256) }
+	break;
+	case 4:
 #line 31 "src/parser.rl"
-      {
-        parser->token.type = HSH_TOK_BODY;
-        parser->token.index = p - buffer->buf;
-      } break;
-      case 6:
+	{ HSH_ENTER_TOKEN(HSH_TOK_HEADER_VALUE, 4096) }
+	break;
+	case 5:
 #line 32 "src/parser.rl"
-      {
-        parser->token.len = p - (buffer->buf + parser->token.index);
-        // hsh_token_array_push(&parser->tokens, parser->token);
-        HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
-        {
-          p++;
-          goto _out;
-        }
-      } break;
-      case 7:
-#line 39 "src/parser.rl"
-      {
-        parser->content_length *= 10;
-        parser->content_length += (*p) - '0';
-      } break;
-      case 8:
-#line 44 "src/parser.rl"
-      {
-        HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_CHUNKED);
-      } break;
-      case 9:
-#line 48 "src/parser.rl"
-      {
-        parser->limit_count = 0;
-        parser->limit_max = 256;
-      } break;
-      case 10:
-#line 53 "src/parser.rl"
-      {
-        parser->limit_count++;
-        if (parser->limit_count > parser->limit_max) {
-          // parser->rc = (int8_t)HSH_PARSER_ERR;
-          {
-            p++;
-            goto _out;
-          }
-        }
-      } break;
-      case 11:
-#line 61 "src/parser.rl"
-      {
-        buffer->after_headers_index = p - buffer->buf + 1;
-        parser->content_remaining = parser->content_length;
-        parser->token = (struct hsh_token_s){};
-        parser->token.type = HSH_TOK_HEADERS_DONE;
-        HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
-        if (HTTP_FLAG_CHECK(parser->flags, HSH_P_FLAG_CHUNKED)) {
-          HTTP_FLAG_SET(parser->token.flags, HSH_TOK_FLAG_STREAMED_BODY);
-          cs = 74;
-          {
-            p++;
-            goto _out;
-          }
-        } else if (parser->content_length == 0) {
-          HTTP_FLAG_SET(parser->token.flags, HSH_TOK_FLAG_NO_BODY);
-          {
-            p++;
-            goto _out;
-          }
-          // The body won't fit into the buffer at maximum capacity.
-        } else if (parser->content_length >
-                   max_buf_capacity - buffer->after_headers_index) {
-          HTTP_FLAG_SET(parser->token.flags, HSH_TOK_FLAG_STREAMED_BODY);
-          cs = 89;
-          {
-            p++;
-            goto _out;
-          }
-        } else {
-          // Resize the buffer to hold the full body
-          if (parser->content_length + buffer->after_headers_index >
-              buffer->capacity) {
-            buffer->buf = realloc(buffer->buf, parser->content_length +
-                                                   buffer->after_headers_index);
-            buffer->capacity =
-                parser->content_length + buffer->after_headers_index;
-          }
-          cs = 88;
-          {
-            p++;
-            goto _out;
-          }
-        }
-      } break;
-      case 12:
-#line 90 "src/parser.rl"
-      {
-        parser->content_length = 0;
-      } break;
-      case 13:
-#line 94 "src/parser.rl"
-      {
-        if ((*p) >= 'A' && (*p) <= 'F') {
-          parser->content_length *= 0x10;
-          parser->content_length += (*p) - 55;
-        } else if ((*p) >= 'a' && (*p) <= 'f') {
-          parser->content_length *= 0x10;
-          parser->content_length += (*p) - 87;
-        } else if ((*p) >= '0' && (*p) <= '9') {
-          parser->content_length *= 0x10;
-          parser->content_length += (*p) - '0';
-        }
-      } break;
-      case 14:
-#line 107 "src/parser.rl"
-      {
-        char *last_body_byte =
-            buffer->buf + parser->token.index + parser->content_length - 1;
-        if (pe >= last_body_byte) {
-          p = last_body_byte;
-          parser->token.len = parser->content_length;
-          HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
-          cs = 66;
-          {
-            p++;
-            goto _out;
-          }
-          // The current chunk is at the end of the buffer and the buffer cannot
-          // be expanded. Move the remaining contents of the buffer to just
-          // after the headers to free up capacity in the buffer.
-        } else if (p - buffer->buf + parser->content_length >
-                   max_buf_capacity) {
-          memcpy(buffer->buf + buffer->after_headers_index, p, pe - p);
-          buffer->length = buffer->after_headers_index + pe - p;
-          p = buffer->buf + buffer->after_headers_index;
-          parser->token.index = buffer->after_headers_index;
-          parser->sequence_id = buffer->sequence_id;
-          p--;
-          {
-            p++;
-            goto _out;
-          }
-        }
-      } break;
-      case 15:
-#line 129 "src/parser.rl"
-      {
-        // write 0 byte body to tokens
-        parser->token.type = HSH_TOK_BODY;
-        parser->token.index = 0;
-        parser->token.len = 0;
-        parser->token.flags = HSH_TOK_FLAG_BODY_FINAL;
-        HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
-        HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_DONE);
-        {
-          p++;
-          goto _out;
-        }
-      } break;
-      case 16:
-#line 140 "src/parser.rl"
-      {
-        parser->token.index = buffer->after_headers_index;
-        parser->token.len = parser->content_length;
-        HTTP_FLAG_SET(parser->token.flags, HSH_TOK_FLAG_SMALL_BODY);
-        char *last_body_byte =
-            buffer->buf + parser->token.index + parser->content_length - 1;
-        if (pe >= last_body_byte) {
-          HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
-          HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_DONE);
-        }
-        p--;
-        {
-          p++;
-          goto _out;
-        }
-      } break;
-      case 17:
-#line 153 "src/parser.rl"
-      {
-        parser->token.index = buffer->after_headers_index;
-        char *last_body_byte = buffer->buf + buffer->after_headers_index +
-                               parser->content_remaining - 1;
-        if (pe >= last_body_byte) {
-          parser->token.len = parser->content_remaining;
-          parser->content_remaining = 0;
-          HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
-          HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_DONE);
-        } else {
-          parser->token.len = pe - p;
-          parser->content_remaining -= parser->token.len;
-          HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
-          p = buffer->buf + buffer->after_headers_index;
-          parser->sequence_id = buffer->sequence_id;
-        }
-        p--;
-        {
-          p++;
-          goto _out;
-        }
-      } break;
-      case 18:
-#line 172 "src/parser.rl"
-      {
-        // parser->rc = (int8_t)HSH_PARSER_ERR;
-        {
-          p++;
-          goto _out;
-        }
-      } break;
-#line 645 "src/parser.c"
-      }
-    }
-
-  _again:
-    if (cs == 0)
-      goto _out;
-    if (++p != pe)
-      goto _resume;
-  _test_eof : {}
-    if (p == eof) {
-      const char *__acts = _hsh_http_actions + _hsh_http_eof_actions[cs];
-      unsigned int __nacts = (unsigned int)*__acts++;
-      while (__nacts-- > 0) {
-        switch (*__acts++) {
-        case 18:
-#line 172 "src/parser.rl"
-        {
-          // parser->rc = (int8_t)HSH_PARSER_ERR;
-          {
-            p++;
-            goto _out;
-          }
-        } break;
-#line 668 "src/parser.c"
-        }
-      }
-    }
-
-  _out : {}
+	{
+    parser->token.type = HSH_TOK_BODY;
+    parser->token.flags = 0;
+    parser->token.index = p - buffer->buf;
   }
+	break;
+	case 6:
+#line 37 "src/parser.rl"
+	{
+    parser->token.len = p - (buffer->buf + parser->token.index);
+    // hsh_token_array_push(&parser->tokens, parser->token);
+    HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
+    {p++; goto _out; }
+  }
+	break;
+	case 7:
+#line 44 "src/parser.rl"
+	{
+    parser->content_length *= 10;
+    parser->content_length += (*p) - '0';
+  }
+	break;
+	case 8:
+#line 49 "src/parser.rl"
+	{
+    HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_CHUNKED);
+  }
+	break;
+	case 9:
+#line 53 "src/parser.rl"
+	{
+    parser->limit_count = 0;
+    parser->limit_max = 256;
+  }
+	break;
+	case 10:
+#line 58 "src/parser.rl"
+	{
+    parser->limit_count++;
+    if (parser->limit_count > parser->limit_max) {
+      // parser->rc = (int8_t)HSH_PARSER_ERR;
+      {p++; goto _out; }
+    }
+  }
+	break;
+	case 11:
+#line 66 "src/parser.rl"
+	{
+    buffer->after_headers_index = p - buffer->buf + 1;
+    parser->content_remaining = parser->content_length;
+    parser->token = (struct hsh_token_s){ };
+    parser->token.type = HSH_TOK_HEADERS_DONE;
+    HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
+    if (HTTP_FLAG_CHECK(parser->flags, HSH_P_FLAG_CHUNKED)) {
+      HTTP_FLAG_SET(parser->token.flags, HSH_TOK_FLAG_STREAMED_BODY);
+      cs = 74;
+      {p++; goto _out; }
+    } else if (parser->content_length == 0) {
+      HTTP_FLAG_SET(parser->token.flags, HSH_TOK_FLAG_NO_BODY);
+      {p++; goto _out; }
+    // The body won't fit into the buffer at maximum capacity.
+    } else if (parser->content_length > max_buf_capacity - buffer->after_headers_index) {
+      HTTP_FLAG_SET(parser->token.flags, HSH_TOK_FLAG_STREAMED_BODY);
+      cs = 89;
+      {p++; goto _out; }
+    } else {
+      // Resize the buffer to hold the full body
+      if (parser->content_length + buffer->after_headers_index > buffer->capacity) {
+        buffer->buf = realloc(buffer->buf, parser->content_length + buffer->after_headers_index);
+        buffer->capacity = parser->content_length + buffer->after_headers_index;
+      }
+      cs = 88;
+      {p++; goto _out; }
+    }
+  }
+	break;
+	case 12:
+#line 95 "src/parser.rl"
+	{
+    parser->content_length = 0;
+  }
+	break;
+	case 13:
+#line 99 "src/parser.rl"
+	{
+    if ((*p) >= 'A' && (*p) <= 'F') {
+      parser->content_length *= 0x10;
+      parser->content_length += (*p) - 55;
+    } else if ((*p) >= 'a' && (*p) <= 'f') {
+      parser->content_length *= 0x10;
+      parser->content_length += (*p) - 87;
+    } else if ((*p) >= '0' && (*p) <= '9') {
+      parser->content_length *= 0x10;
+      parser->content_length += (*p) - '0';
+    }
+  }
+	break;
+	case 14:
+#line 112 "src/parser.rl"
+	{
+    char* last_body_byte = buffer->buf + parser->token.index + parser->content_length - 1;
+    if (pe >= last_body_byte) {
+      p = last_body_byte;
+      parser->token.len = parser->content_length;
+      HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
+      cs = 66;
+      {p++; goto _out; }
+    // The current chunk is at the end of the buffer and the buffer cannot be expanded.
+    // Move the remaining contents of the buffer to just after the headers to free up
+    // capacity in the buffer.
+    } else if (p - buffer->buf + parser->content_length > max_buf_capacity) {
+      memcpy(buffer->buf + buffer->after_headers_index, p, pe - p);
+      buffer->length = buffer->after_headers_index + pe - p;
+      p = buffer->buf + buffer->after_headers_index;
+      parser->token.index = buffer->after_headers_index;
+      parser->sequence_id = buffer->sequence_id;
+      p--;
+      {p++; goto _out; }
+    }
+  }
+	break;
+	case 15:
+#line 134 "src/parser.rl"
+	{
+    // write 0 byte body to tokens
+    parser->token.type = HSH_TOK_BODY;
+    parser->token.index = 0;
+    parser->token.len = 0;
+    parser->token.flags = HSH_TOK_FLAG_BODY_FINAL;
+    HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
+    HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_DONE);
+    {p++; goto _out; }
+  }
+	break;
+	case 16:
+#line 145 "src/parser.rl"
+	{
+    parser->token.index = buffer->after_headers_index;
+    parser->token.len = parser->content_length;
+    HTTP_FLAG_SET(parser->token.flags, HSH_TOK_FLAG_SMALL_BODY);
+    char* last_body_byte = buffer->buf + parser->token.index + parser->content_length - 1;
+    if (pe >= last_body_byte) {
+      HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
+      HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_DONE);
+    }
+    p--;
+    {p++; goto _out; }
+  }
+	break;
+	case 17:
+#line 158 "src/parser.rl"
+	{
+    parser->token.index = buffer->after_headers_index;
+    char* last_body_byte = buffer->buf + buffer->after_headers_index + parser->content_remaining - 1;
+    if (pe >= last_body_byte) {
+      parser->token.len = parser->content_remaining;
+      parser->content_remaining = 0;
+      HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
+      HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_DONE);
+    } else {
+      parser->token.len = pe - p;
+      parser->content_remaining -= parser->token.len;
+      HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
+      p = buffer->buf + buffer->after_headers_index;
+      buffer->length = buffer->after_headers_index;
+      parser->sequence_id = buffer->sequence_id;
+    }
+    p--;
+    {p++; goto _out; }
+  }
+	break;
+	case 18:
+#line 178 "src/parser.rl"
+	{
+    // parser->rc = (int8_t)HSH_PARSER_ERR;
+    {p++; goto _out; }
+  }
+	break;
+#line 651 "src/parser.c"
+		}
+	}
 
-#line 248 "src/parser.rl"
+_again:
+	if ( cs == 0 )
+		goto _out;
+	if ( ++p != pe )
+		goto _resume;
+	_test_eof: {}
+	if ( p == eof )
+	{
+	const char *__acts = _hsh_http_actions + _hsh_http_eof_actions[cs];
+	unsigned int __nacts = (unsigned int) *__acts++;
+	while ( __nacts-- > 0 ) {
+		switch ( *__acts++ ) {
+	case 18:
+#line 178 "src/parser.rl"
+	{
+    // parser->rc = (int8_t)HSH_PARSER_ERR;
+    {p++; goto _out; }
+  }
+	break;
+#line 674 "src/parser.c"
+		}
+	}
+	}
+
+	_out: {}
+	}
+
+#line 254 "src/parser.rl"
   parser->state = cs;
   buffer->index = p - buffer->buf;
   if (HTTP_FLAG_CHECK(parser->flags, HSH_P_FLAG_TOKEN_READY)) {
@@ -1496,9 +1864,11 @@ void _hs_token_array_push(struct hs_token_array_s *array,
   array->size++;
 }
 
-void _hs_buffer_init(struct hsh_buffer_s *buffer, int initial_capacity) {
+void _hs_buffer_init(struct hsh_buffer_s *buffer, int initial_capacity,
+                     int64_t *memused) {
   *buffer = (struct hsh_buffer_s){0};
   buffer->buf = (char *)calloc(1, initial_capacity);
+  *memused += initial_capacity;
   assert(buffer->buf != NULL);
   buffer->capacity = initial_capacity;
 }
@@ -1577,26 +1947,23 @@ enum hs_read_rc_e _hs_parse(http_request_t *request,
   } while (1);
 }
 
-/* Reads the request socket if required and parses HTTP in a non-blocking
- * manner.
- *
- * This is called when a new connection is established and when a read ready
- * event occurs for the request socket.
- *
- * @param request The request to perform the read on.
- * @param opts Options for configuring the read.
- *
- * @return Return code to determine any execution issues.
- */
+// Reads the request socket if required and parses HTTP in a non-blocking
+// manner.
+//
+// It should be called when a new connection is established and when a read
+// ready event occurs for the request socket. It parses the HTTP request and
+// fills the tokens array of the request struct. It will also invoke the
+// request_hander callback and the chunk_cb callback in the appropriate
+// scenarios.
 enum hs_read_rc_e hs_read_socket(http_request_t *request,
                                  struct hs_read_opts_s opts) {
   request->state = HTTP_SESSION_READ;
   request->timeout = HTTP_REQUEST_TIMEOUT;
 
-  enum hs_read_rc_e rc = HS_READ_RC_SUCCESS;
-
   if (request->buffer.buf == NULL) {
-    _hs_buffer_init(&request->buffer, opts.initial_request_buf_capacity);
+    _hs_buffer_init(&request->buffer, opts.initial_request_buf_capacity,
+                    &request->server->memused);
+    hsh_parser_init(&request->parser);
   }
 
   if (_hs_buffer_requires_read(&request->buffer)) {
@@ -1605,13 +1972,11 @@ enum hs_read_rc_e hs_read_socket(http_request_t *request,
                                      opts.max_request_buf_capacity);
 
     if (bytes == opts.eof_rc) {
-      rc = HS_READ_RC_SOCKET_ERR;
+      return HS_READ_RC_SOCKET_ERR;
     }
-  } else {
-    rc = _hs_parse(request, opts.max_request_buf_capacity);
   }
 
-  return rc;
+  return _hs_parse(request, opts.max_request_buf_capacity);
 }
 
 #line 1 "src/respond.c"
@@ -1780,6 +2145,7 @@ void _http_end_response(http_request_t *request, http_response_t *response,
   http_write(request);
 }
 
+// See api.h http_response_header
 void hs_response_header(http_response_t *response, char const *key,
                         char const *value) {
   http_header_t *header = (http_header_t *)malloc(sizeof(http_header_t));
@@ -1791,6 +2157,8 @@ void hs_response_header(http_response_t *response, char const *key,
   response->headers = header;
 }
 
+// Serializes the response into the request buffer and calls http_write.
+// See api.h http_respond for more details
 void hs_respond(http_request_t *request, http_response_t *response,
                 hs_req_fn_t http_write) {
   grwprintf_t printctx;
@@ -1802,6 +2170,8 @@ void hs_respond(http_request_t *request, http_response_t *response,
   _http_end_response(request, response, &printctx, http_write);
 }
 
+// Serializes a chunk into the request buffer and calls http_write.
+// See api.h http_respond_chunk for more details.
 void hs_respond_chunk(http_request_t *request, http_response_t *response,
                       hs_req_fn_t cb, hs_req_fn_t http_write) {
   grwprintf_t printctx;
@@ -1818,6 +2188,8 @@ void hs_respond_chunk(http_request_t *request, http_response_t *response,
   _http_end_response(request, response, &printctx, http_write);
 }
 
+// Serializes the zero sized final chunk into the request buffer and calls
+// http_write. See api.h http_respond_chunk_end for more details.
 void hs_respond_chunk_end(http_request_t *request, http_response_t *response,
                           hs_req_fn_t http_write) {
   grwprintf_t printctx;
@@ -1829,15 +2201,18 @@ void hs_respond_chunk_end(http_request_t *request, http_response_t *response,
   _http_end_response(request, response, &printctx, http_write);
 }
 
+// See api.h http_response_status
 void hs_response_status(http_response_t *response, int status) {
   response->status = status > 599 || status < 100 ? 500 : status;
 }
 
+// See api.h http_response_body
 void hs_response_body(http_response_t *response, char const *body, int length) {
   response->body = body;
   response->content_length = length;
 }
 
+// See api.h http_response_init
 http_response_t *hs_response_init() {
   http_response_t *response =
       (http_response_t *)calloc(1, sizeof(http_response_t));
@@ -1846,6 +2221,7 @@ http_response_t *hs_response_init() {
   return response;
 }
 
+// Simple less flexible interface for responses, used for errors.
 void hs_respond_error(http_request_t *request, int code, char const *message,
                       hs_req_fn_t http_write) {
   struct http_response_s *response = hs_response_init();
@@ -2049,15 +2425,12 @@ void _hs_add_write_event(int event_loop, int request_socket,
 #endif
 }
 
-/* Writes response bytes from the buffer out to the socket.
- *
- * Runs when we get a socket ready to write event or when initiating an HTTP
- * response and writing to the socket for the first time.
- *
- * @param request The request to write
- *
- * @return Return code
- */
+// Writes response bytes from the buffer out to the socket.
+//
+// Runs when we get a socket ready to write event or when initiating an HTTP
+// response and writing to the socket for the first time. If the response is
+// chunked the chunk_cb callback will be invoked signalling to the user code
+// that another chunk is ready to be written.
 enum hs_write_rc_e hs_write_socket(http_request_t *request) {
   enum hs_write_rc_e rc = HS_WRITE_RC_SUCCESS;
 
@@ -2085,9 +2458,9 @@ enum hs_write_rc_e hs_write_socket(http_request_t *request) {
       _hs_buffer_free(&request->buffer, &request->server->memused);
 
       // XXX event = HS_EVT_BODY_CALLBACK;
+      rc = HS_WRITE_RC_SUCCESS_CHUNK;
     } else {
       if (HTTP_FLAG_CHECK(request->flags, HTTP_KEEP_ALIVE)) {
-        request->state = HTTP_SESSION_INIT;
         request->timeout = HTTP_KEEP_ALIVE_TIMEOUT;
         _hs_buffer_free(&request->buffer, &request->server->memused);
 
@@ -2216,6 +2589,12 @@ void hs_accept_connections(http_server_t *server, hs_io_cb_t io_cb,
 }
 
 #line 1 "src/io_events.c"
+#ifdef KQUEUE
+#include <sys/event.h>
+#else
+#include <sys/epoll.h>
+#endif
+
 #ifndef HTTPSERVER_IMPL
 #include "io_events.h"
 #include "common.h"
@@ -2261,7 +2640,12 @@ void _hs_connection_process_io(http_request_t *request) {
     switch (rc) {
     case HS_WRITE_RC_SUCCESS_CLOSE:
     case HS_WRITE_RC_SOCKET_ERR:
+      // Error or response complete, connection: close
       hs_terminate_connection(request);
+      break;
+    case HS_WRITE_RC_SUCCESS:
+      // Response complete, keep-alive connection
+      hs_read(request);
       break;
     default:
       break;
@@ -2275,9 +2659,6 @@ void _hs_mem_error_responder(http_request_t *request) {
 
 #ifdef KQUEUE
 
-/*
- *
- */
 void hs_connection_io_cb(struct kevent *ev) {
   http_request_t *request = (http_request_t *)ev->udata;
   if (ev->filter == EVFILT_TIMER) {
@@ -2289,9 +2670,6 @@ void hs_connection_io_cb(struct kevent *ev) {
   }
 }
 
-/*
- *
- */
 void hs_accept_cb(struct kevent *ev) {
   http_server_t *server = (http_server_t *)ev->udata;
   if (ev->filter == EVFILT_TIMER) {
@@ -2304,24 +2682,15 @@ void hs_accept_cb(struct kevent *ev) {
 
 #else
 
-/*
- *
- */
 void hs_connection_io_cb(struct epoll_event *ev) {
   _hs_connection_process_io((http_request_t *)ev->data.ptr);
 }
 
-/*
- *
- */
 void hs_accept_cb(struct epoll_event *ev) {
   hs_accept_connections((http_server_t *)ev->data.ptr, hs_connection_io_cb,
                         _hs_mem_error_responder);
 }
 
-/*
- *
- */
 void hs_server_timer_cb(struct epoll_event *ev) {
   http_server_t *server =
       (http_server_t *)((char *)ev->data.ptr - sizeof(epoll_cb_t));
@@ -2331,9 +2700,6 @@ void hs_server_timer_cb(struct epoll_event *ev) {
   hs_generate_date_time(server->date);
 }
 
-/*
- *
- */
 void hs_request_timer_cb(struct epoll_event *ev) {
   http_request_t *request =
       (http_request_t *)((char *)ev->data.ptr - sizeof(epoll_cb_t));

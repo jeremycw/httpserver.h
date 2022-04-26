@@ -20,9 +20,11 @@ void _hs_token_array_push(struct hs_token_array_s *array,
   array->size++;
 }
 
-void _hs_buffer_init(struct hsh_buffer_s *buffer, int initial_capacity) {
+void _hs_buffer_init(struct hsh_buffer_s *buffer, int initial_capacity,
+                     int64_t *memused) {
   *buffer = (struct hsh_buffer_s){0};
   buffer->buf = (char *)calloc(1, initial_capacity);
+  *memused += initial_capacity;
   assert(buffer->buf != NULL);
   buffer->capacity = initial_capacity;
 }
@@ -115,7 +117,8 @@ enum hs_read_rc_e hs_read_socket(http_request_t *request,
   request->timeout = HTTP_REQUEST_TIMEOUT;
 
   if (request->buffer.buf == NULL) {
-    _hs_buffer_init(&request->buffer, opts.initial_request_buf_capacity);
+    _hs_buffer_init(&request->buffer, opts.initial_request_buf_capacity,
+                    &request->server->memused);
     hsh_parser_init(&request->parser);
   }
 

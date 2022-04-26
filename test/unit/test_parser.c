@@ -3,6 +3,7 @@
 
 #include "../../src/common.h"
 #include "../../src/parser.h"
+#include "../debugbreak.h"
 
 void setup_buffer_and_parser(struct hsh_parser_s *parser,
                              struct hsh_buffer_s *buffer, char const *req_str) {
@@ -145,7 +146,8 @@ MunitResult test_parser_large_body(const MunitParameter params[], void *data) {
 
   munit_assert(i == 9);
 
-  memcpy(buffer.buf + buffer.length - 8, "bbbbbbbb", 8);
+  memcpy(buffer.buf + buffer.length, "bbbbbbbb", 8);
+  buffer.length += 8;
   buffer.sequence_id++;
 
   out = hsh_parser_exec(&parser, &buffer, max_buf_capacity);

@@ -69,9 +69,9 @@ enum hs_write_rc_e hs_write_socket(http_request_t *request) {
       _hs_buffer_free(&request->buffer, &request->server->memused);
 
       // XXX event = HS_EVT_BODY_CALLBACK;
+      rc = HS_WRITE_RC_SUCCESS_CHUNK;
     } else {
       if (HTTP_FLAG_CHECK(request->flags, HTTP_KEEP_ALIVE)) {
-        request->state = HTTP_SESSION_INIT;
         request->timeout = HTTP_KEEP_ALIVE_TIMEOUT;
         _hs_buffer_free(&request->buffer, &request->server->memused);
 

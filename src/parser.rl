@@ -29,7 +29,11 @@
   action version { HSH_ENTER_TOKEN(HSH_TOK_VERSION, 16) }
   action header_key { HSH_ENTER_TOKEN(HSH_TOK_HEADER_KEY, 256) }
   action header_value { HSH_ENTER_TOKEN(HSH_TOK_HEADER_VALUE, 4096) }
-  action body { parser->token.type = HSH_TOK_BODY; parser->token.index = p - buffer->buf; }
+  action body {
+    parser->token.type = HSH_TOK_BODY;
+    parser->token.flags = 0;
+    parser->token.index = p - buffer->buf;
+  }
   action emit_token {
     parser->token.len = p - (buffer->buf + parser->token.index);
     // hsh_token_array_push(&parser->tokens, parser->token);
@@ -164,6 +168,7 @@
       parser->content_remaining -= parser->token.len;
       HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
       p = buffer->buf + buffer->after_headers_index;
+      buffer->length = buffer->after_headers_index;
       parser->sequence_id = buffer->sequence_id;
     }
     fhold;

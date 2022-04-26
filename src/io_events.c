@@ -1,3 +1,9 @@
+#ifdef KQUEUE
+#include <sys/event.h>
+#else
+#include <sys/epoll.h>
+#endif
+
 #ifndef HTTPSERVER_IMPL
 #include "io_events.h"
 #include "common.h"
@@ -43,7 +49,12 @@ void _hs_connection_process_io(http_request_t *request) {
     switch (rc) {
     case HS_WRITE_RC_SUCCESS_CLOSE:
     case HS_WRITE_RC_SOCKET_ERR:
+      // Error or response complete, connection: close
       hs_terminate_connection(request);
+      break;
+    case HS_WRITE_RC_SUCCESS:
+      // Response complete, keep-alive connection
+      hs_read(request);
       break;
     default:
       break;
