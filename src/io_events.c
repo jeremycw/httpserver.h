@@ -5,9 +5,9 @@
 #endif
 
 #ifndef HTTPSERVER_IMPL
-#include "io_events.h"
 #include "common.h"
 #include "connection.h"
+#include "io_events.h"
 #include "read_socket.h"
 #include "respond.h"
 #include "server.h"
