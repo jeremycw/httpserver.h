@@ -77,6 +77,7 @@ enum hs_read_rc_e _hs_parse(http_request_t *request,
 
     switch (token.type) {
     case HSH_TOK_HEADERS_DONE:
+      _hs_token_array_push(&request->tokens, token);
       if (HTTP_FLAG_CHECK(token.flags, HSH_TOK_FLAG_STREAMED_BODY) ||
           HTTP_FLAG_CHECK(token.flags, HSH_TOK_FLAG_NO_BODY)) {
         HTTP_FLAG_SET(request->flags, HTTP_FLG_STREAMED);
@@ -85,12 +86,25 @@ enum hs_read_rc_e _hs_parse(http_request_t *request,
       }
       break;
     case HSH_TOK_BODY:
+      _hs_token_array_push(&request->tokens, token);
       if (HTTP_FLAG_CHECK(token.flags, HSH_TOK_FLAG_SMALL_BODY)) {
         _hs_exec_callback(request, request->server->request_handler);
       } else {
-        _hs_exec_callback(request, request->chunk_cb);
+        if (HTTP_FLAG_CHECK(token.flags, HSH_TOK_FLAG_BODY_FINAL) && token.len > 0) {
+          _hs_exec_callback(request, request->chunk_cb);
+
+          // A zero length body is used to indicate to the user code that the
+          // body has finished streaming. This is natural when dealing with
+          // chunked request bodies but requires us to inject a zero length
+          // body for non-chunked requests.
+          struct hsh_token_s token = { 0 };
+          token.type = HSH_TOK_BODY;
+          _hs_token_array_push(&request->tokens, token);
+          _hs_exec_callback(request, request->chunk_cb);
+        } else {
+          _hs_exec_callback(request, request->chunk_cb);
+        }
       }
-      _hs_token_array_push(&request->tokens, token);
       return rc;
     case HSH_TOK_ERR:
       return HS_READ_RC_PARSE_ERR;

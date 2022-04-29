@@ -1105,7 +1105,7 @@ void hs_auto_detect_keep_alive(http_request_t *request) {
 int _hs_assign_iteration_headers(http_request_t *request, http_string_t *key,
                                  http_string_t *val, int *iter) {
   struct hsh_token_s token = request->tokens.buf[*iter];
-  if (request->tokens.buf[*iter].type == HSH_TOK_BODY)
+  if (request->tokens.buf[*iter].type == HSH_TOK_HEADERS_DONE)
     return 0;
   *key = (http_string_t){.buf = &request->buffer.buf[token.index],
                          .len = token.len};
@@ -1152,7 +1152,6 @@ http_string_t hs_request_chunk(struct http_request_s *request) {
 
 #line 1 "src/parser.rl"
 #include <string.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -1175,11 +1174,11 @@ http_string_t hs_request_chunk(struct http_request_s *request) {
   parser->limit_max = max_len;
 
 
-#line 234 "src/parser.rl"
+#line 235 "src/parser.rl"
 
 
 
-#line 32 "src/parser.c"
+#line 31 "src/parser.c"
 static const char _hsh_http_actions[] = {
 	0, 1, 2, 1, 6, 1, 10, 1, 
 	13, 1, 14, 1, 15, 1, 16, 1, 
@@ -1506,7 +1505,7 @@ static const int hsh_http_en_large_body = 89;
 static const int hsh_http_en_main = 1;
 
 
-#line 237 "src/parser.rl"
+#line 238 "src/parser.rl"
 
 void hsh_parser_init(struct hsh_parser_s* parser) {
   memset(parser, 0, sizeof(struct hsh_parser_s));
@@ -1524,7 +1523,7 @@ struct hsh_token_s hsh_parser_exec(struct hsh_parser_s* parser, struct hsh_buffe
   char *p = buffer->buf + buffer->index;
   char *pe = buffer->buf + buffer->length;
   
-#line 377 "src/parser.c"
+#line 376 "src/parser.c"
 	{
 	int _klen;
 	unsigned int _trans;
@@ -1599,27 +1598,27 @@ _match:
 		switch ( *_acts++ )
 		{
 	case 0:
-#line 27 "src/parser.rl"
+#line 26 "src/parser.rl"
 	{ HSH_ENTER_TOKEN(HSH_TOK_METHOD, 32) }
 	break;
 	case 1:
-#line 28 "src/parser.rl"
+#line 27 "src/parser.rl"
 	{ HSH_ENTER_TOKEN(HSH_TOK_TARGET, 1024) }
 	break;
 	case 2:
-#line 29 "src/parser.rl"
+#line 28 "src/parser.rl"
 	{ HSH_ENTER_TOKEN(HSH_TOK_VERSION, 16) }
 	break;
 	case 3:
-#line 30 "src/parser.rl"
+#line 29 "src/parser.rl"
 	{ HSH_ENTER_TOKEN(HSH_TOK_HEADER_KEY, 256) }
 	break;
 	case 4:
-#line 31 "src/parser.rl"
+#line 30 "src/parser.rl"
 	{ HSH_ENTER_TOKEN(HSH_TOK_HEADER_VALUE, 4096) }
 	break;
 	case 5:
-#line 32 "src/parser.rl"
+#line 31 "src/parser.rl"
 	{
     parser->token.type = HSH_TOK_BODY;
     parser->token.flags = 0;
@@ -1627,7 +1626,7 @@ _match:
   }
 	break;
 	case 6:
-#line 37 "src/parser.rl"
+#line 36 "src/parser.rl"
 	{
     parser->token.len = p - (buffer->buf + parser->token.index);
     // hsh_token_array_push(&parser->tokens, parser->token);
@@ -1636,27 +1635,27 @@ _match:
   }
 	break;
 	case 7:
-#line 44 "src/parser.rl"
+#line 43 "src/parser.rl"
 	{
     parser->content_length *= 10;
     parser->content_length += (*p) - '0';
   }
 	break;
 	case 8:
-#line 49 "src/parser.rl"
+#line 48 "src/parser.rl"
 	{
     HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_CHUNKED);
   }
 	break;
 	case 9:
-#line 53 "src/parser.rl"
+#line 52 "src/parser.rl"
 	{
     parser->limit_count = 0;
     parser->limit_max = 256;
   }
 	break;
 	case 10:
-#line 58 "src/parser.rl"
+#line 57 "src/parser.rl"
 	{
     parser->limit_count++;
     if (parser->limit_count > parser->limit_max) {
@@ -1666,7 +1665,7 @@ _match:
   }
 	break;
 	case 11:
-#line 66 "src/parser.rl"
+#line 65 "src/parser.rl"
 	{
     buffer->after_headers_index = p - buffer->buf + 1;
     parser->content_remaining = parser->content_length;
@@ -1697,13 +1696,13 @@ _match:
   }
 	break;
 	case 12:
-#line 95 "src/parser.rl"
+#line 94 "src/parser.rl"
 	{
     parser->content_length = 0;
   }
 	break;
 	case 13:
-#line 99 "src/parser.rl"
+#line 98 "src/parser.rl"
 	{
     if ((*p) >= 'A' && (*p) <= 'F') {
       parser->content_length *= 0x10;
@@ -1718,7 +1717,7 @@ _match:
   }
 	break;
 	case 14:
-#line 112 "src/parser.rl"
+#line 111 "src/parser.rl"
 	{
     char* last_body_byte = buffer->buf + parser->token.index + parser->content_length - 1;
     if (pe >= last_body_byte) {
@@ -1742,7 +1741,7 @@ _match:
   }
 	break;
 	case 15:
-#line 134 "src/parser.rl"
+#line 133 "src/parser.rl"
 	{
     // write 0 byte body to tokens
     parser->token.type = HSH_TOK_BODY;
@@ -1755,7 +1754,7 @@ _match:
   }
 	break;
 	case 16:
-#line 145 "src/parser.rl"
+#line 144 "src/parser.rl"
 	{
     parser->token.index = buffer->after_headers_index;
     parser->token.len = parser->content_length;
@@ -1765,6 +1764,7 @@ _match:
       HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
       HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_DONE);
     }
+    p = pe;
     p--;
     {p++; goto _out; }
   }
@@ -1775,6 +1775,7 @@ _match:
     parser->token.index = buffer->after_headers_index;
     char* last_body_byte = buffer->buf + buffer->after_headers_index + parser->content_remaining - 1;
     if (pe >= last_body_byte) {
+      parser->token.flags = HSH_TOK_FLAG_BODY_FINAL;
       parser->token.len = parser->content_remaining;
       parser->content_remaining = 0;
       HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
@@ -1792,13 +1793,13 @@ _match:
   }
 	break;
 	case 18:
-#line 178 "src/parser.rl"
+#line 179 "src/parser.rl"
 	{
     // parser->rc = (int8_t)HSH_PARSER_ERR;
     {p++; goto _out; }
   }
 	break;
-#line 651 "src/parser.c"
+#line 652 "src/parser.c"
 		}
 	}
 
@@ -1815,13 +1816,13 @@ _again:
 	while ( __nacts-- > 0 ) {
 		switch ( *__acts++ ) {
 	case 18:
-#line 178 "src/parser.rl"
+#line 179 "src/parser.rl"
 	{
     // parser->rc = (int8_t)HSH_PARSER_ERR;
     {p++; goto _out; }
   }
 	break;
-#line 674 "src/parser.c"
+#line 675 "src/parser.c"
 		}
 	}
 	}
@@ -1829,7 +1830,7 @@ _again:
 	_out: {}
 	}
 
-#line 254 "src/parser.rl"
+#line 255 "src/parser.rl"
   parser->state = cs;
   buffer->index = p - buffer->buf;
   if (HTTP_FLAG_CHECK(parser->flags, HSH_P_FLAG_TOKEN_READY)) {
@@ -1844,6 +1845,7 @@ _again:
 #line 1 "src/read_socket.c"
 #include <assert.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <unistd.h>
 
 #ifndef HTTPSERVER_IMPL
@@ -1921,6 +1923,7 @@ enum hs_read_rc_e _hs_parse(http_request_t *request,
 
     switch (token.type) {
     case HSH_TOK_HEADERS_DONE:
+      _hs_token_array_push(&request->tokens, token);
       if (HTTP_FLAG_CHECK(token.flags, HSH_TOK_FLAG_STREAMED_BODY) ||
           HTTP_FLAG_CHECK(token.flags, HSH_TOK_FLAG_NO_BODY)) {
         HTTP_FLAG_SET(request->flags, HTTP_FLG_STREAMED);
@@ -1929,12 +1932,25 @@ enum hs_read_rc_e _hs_parse(http_request_t *request,
       }
       break;
     case HSH_TOK_BODY:
+      _hs_token_array_push(&request->tokens, token);
       if (HTTP_FLAG_CHECK(token.flags, HSH_TOK_FLAG_SMALL_BODY)) {
         _hs_exec_callback(request, request->server->request_handler);
       } else {
-        _hs_exec_callback(request, request->chunk_cb);
+        if (HTTP_FLAG_CHECK(token.flags, HSH_TOK_FLAG_BODY_FINAL) && token.len > 0) {
+          _hs_exec_callback(request, request->chunk_cb);
+
+          // A zero length body is used to indicate to the user code that the
+          // body has finished streaming. This is natural when dealing with
+          // chunked request bodies but requires us to inject a zero length
+          // body for non-chunked requests.
+          struct hsh_token_s token = { 0 };
+          token.type = HSH_TOK_BODY;
+          _hs_token_array_push(&request->tokens, token);
+          _hs_exec_callback(request, request->chunk_cb);
+        } else {
+          _hs_exec_callback(request, request->chunk_cb);
+        }
       }
-      _hs_token_array_push(&request->tokens, token);
       return rc;
     case HSH_TOK_ERR:
       return HS_READ_RC_PARSE_ERR;
@@ -2141,6 +2157,7 @@ void _http_end_response(http_request_t *request, http_response_t *response,
   request->buffer.buf = printctx->buf;
   request->buffer.length = printctx->size;
   request->buffer.capacity = printctx->capacity;
+  request->bytes_written = 0;
   request->state = HTTP_SESSION_WRITE;
   http_write(request);
 }
@@ -2399,7 +2416,13 @@ http_server_t *hs_server_init(int port, void (*handler)(http_request_t *),
 #ifndef HTTPSERVER_IMPL
 #include "buffer_util.h"
 #include "common.h"
+#include "errno.h"
 #include "write_socket.h"
+#endif
+
+#ifdef HS_UNIT_TEST
+#define write hs_test_write
+ssize_t hs_test_write(int fd, char const *data, size_t size);
 #endif
 
 void _hs_write_buffer_into_socket(struct hsh_buffer_s *buffer,
@@ -2453,11 +2476,11 @@ enum hs_write_rc_e hs_write_socket(http_request_t *request) {
     } else if (HTTP_FLAG_CHECK(request->flags, HTTP_CHUNKED_RESPONSE)) {
       // All bytes of the chunk were written and we need to get the next chunk
       // from the application.
-      request->state = HTTP_SESSION_WRITE;
+      request->state = HTTP_SESSION_NOP;
       request->timeout = HTTP_REQUEST_TIMEOUT;
       _hs_buffer_free(&request->buffer, &request->server->memused);
 
-      // XXX event = HS_EVT_BODY_CALLBACK;
+      request->chunk_cb(request);
       rc = HS_WRITE_RC_SUCCESS_CHUNK;
     } else {
       if (HTTP_FLAG_CHECK(request->flags, HTTP_KEEP_ALIVE)) {

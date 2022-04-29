@@ -10,7 +10,13 @@
 #ifndef HTTPSERVER_IMPL
 #include "buffer_util.h"
 #include "common.h"
+#include "errno.h"
 #include "write_socket.h"
+#endif
+
+#ifdef HS_UNIT_TEST
+#define write hs_test_write
+ssize_t hs_test_write(int fd, char const *data, size_t size);
 #endif
 
 void _hs_write_buffer_into_socket(struct hsh_buffer_s *buffer,
@@ -64,11 +70,11 @@ enum hs_write_rc_e hs_write_socket(http_request_t *request) {
     } else if (HTTP_FLAG_CHECK(request->flags, HTTP_CHUNKED_RESPONSE)) {
       // All bytes of the chunk were written and we need to get the next chunk
       // from the application.
-      request->state = HTTP_SESSION_WRITE;
+      request->state = HTTP_SESSION_NOP;
       request->timeout = HTTP_REQUEST_TIMEOUT;
       _hs_buffer_free(&request->buffer, &request->server->memused);
 
-      // XXX event = HS_EVT_BODY_CALLBACK;
+      request->chunk_cb(request);
       rc = HS_WRITE_RC_SUCCESS_CHUNK;
     } else {
       if (HTTP_FLAG_CHECK(request->flags, HTTP_KEEP_ALIVE)) {

@@ -159,6 +159,7 @@ void _http_end_response(http_request_t *request, http_response_t *response,
   request->buffer.buf = printctx->buf;
   request->buffer.length = printctx->size;
   request->buffer.capacity = printctx->capacity;
+  request->bytes_written = 0;
   request->state = HTTP_SESSION_WRITE;
   http_write(request);
 }

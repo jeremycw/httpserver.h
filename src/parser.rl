@@ -1,5 +1,4 @@
 #include <string.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -151,6 +150,7 @@
       HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);
       HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_DONE);
     }
+    p = pe;
     fhold;
     fbreak;
   }
@@ -159,6 +159,7 @@
     parser->token.index = buffer->after_headers_index;
     char* last_body_byte = buffer->buf + buffer->after_headers_index + parser->content_remaining - 1;
     if (pe >= last_body_byte) {
+      parser->token.flags = HSH_TOK_FLAG_BODY_FINAL;
       parser->token.len = parser->content_remaining;
       parser->content_remaining = 0;
       HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_TOKEN_READY);

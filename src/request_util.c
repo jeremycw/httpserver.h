@@ -65,7 +65,7 @@ void hs_auto_detect_keep_alive(http_request_t *request) {
 int _hs_assign_iteration_headers(http_request_t *request, http_string_t *key,
                                  http_string_t *val, int *iter) {
   struct hsh_token_s token = request->tokens.buf[*iter];
-  if (request->tokens.buf[*iter].type == HSH_TOK_BODY)
+  if (request->tokens.buf[*iter].type == HSH_TOK_HEADERS_DONE)
     return 0;
   *key = (http_string_t){.buf = &request->buffer.buf[token.index],
                          .len = token.len};
