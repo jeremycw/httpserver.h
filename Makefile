@@ -1,6 +1,6 @@
 .PHONY: test clean valgrind test-unit test-integration-cpp test-integration
 
-CFLAGS +=-std=c99 -Wall -Wextra -Werror
+CFLAGS +=-std=c99 -Wall -Wextra
 CXXFLAGS +=-std=c++98
 RELEASE_FLAGS :=-O3
 DEBUG_FLAGS :=-g -fsanitize=address -fsanitize=undefined -fno-sanitize-recover=all
@@ -25,8 +25,8 @@ hs-integration: test/integration/main.c httpserver.h
 hs-integration-cpp: test/integration/main.cpp httpserver.h
 	$(CXX) $(CXXFLAGS) $(RELEASE_FLAGS) test/main.cpp -o hs-integration-cpp
 
-hs-unit: test/unit/main.c test/unit/test_parser.c src/parser.c src/read_socket.c test/unit/test_read_socket.c
-	$(CC) $(CFLAGS) $(DEBUG_FLAGS) test/unit/munit.c $^ -o hs-unit
+hs-unit: test/unit/main.c test/unit/test_parser.c src/parser.c src/read_socket.c src/write_socket.c test/unit/test_read_socket.c test/unit/test_write_socket.c
+	$(CC) $(CFLAGS) $(DEBUG_FLAGS) -DKQUEUE -DHS_UNIT_TEST test/unit/munit.c $^ -o hs-unit
 
 httpserver.h: httpserver.m4 src/*.c src/*.h src/parser.c
 	m4 httpserver.m4 > httpserver.h
