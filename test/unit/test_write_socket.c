@@ -1,8 +1,8 @@
 #include <unistd.h>
 #include "munit.h"
 
-#include "../../src/write_socket.h"
-#include "../../src/common.h"
+#include "write_socket.h"
+#include "common.h"
 #include "../debugbreak.h"
 
 enum hs_test_write_mode_e {
@@ -11,18 +11,24 @@ enum hs_test_write_mode_e {
 };
 
 static enum hs_test_write_mode_e hs_test_write_mode;
+static int write_stub_enabled = 0;
+
+void hs_test_enable_write_stub(int enabled) {
+  write_stub_enabled = enabled;
+}
 
 ssize_t hs_test_write(int fd, char const *data, size_t size) {
-  (void)data;
-  (void)fd;
-
-  switch (hs_test_write_mode) {
-    case HS_TEST_WRITE_SUCCESS:
-      return size;
-    case HS_TEST_WRITE_PARTIAL:
-      return size / 2;
+  if (write_stub_enabled) {
+    switch (hs_test_write_mode) {
+      case HS_TEST_WRITE_SUCCESS:
+        return size;
+      case HS_TEST_WRITE_PARTIAL:
+        return size / 2;
+    }
+    return 0;
+  } else {
+    return write(fd, data, size);
   }
-  return 0;
 }
 
 static struct http_request_s* setup_test_request() {

@@ -1,8 +1,8 @@
 #include "munit.h"
 #include <unistd.h>
 
-#include "../../src/common.h"
-#include "../../src/parser.h"
+#include "common.h"
+#include "parser.h"
 #include "../debugbreak.h"
 
 void setup_buffer_and_parser(struct hsh_parser_s *parser,

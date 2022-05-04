@@ -20,27 +20,35 @@ set_source_files_properties(
   PROPERTIES COMPILE_FLAGS -Wno-unused-variable
 )
 
+find_program(M4 m4)
+if(NOT M4)
+  message(FATAL_ERROR "m4 not found. Please install before continuing.")
+endif()
+
 add_custom_target(
   httpserver.h
   ALL
-  COMMAND m4 -I${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/httpserver.m4 > ${CMAKE_CURRENT_BINARY_DIR}/httpserver.h
+  COMMAND ${M4} -I${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/httpserver.m4 > ${CMAKE_CURRENT_BINARY_DIR}/httpserver.h
   DEPENDS api.h api.c buffer_util.h common.h connection.h connection.c
     io_events.h io_events.c parser.h ${CMAKE_CURRENT_BINARY_DIR}/parser.c
     read_socket.h read_socket.c request_util.h request_util.c respond.h respond.c
     server.h server.c write_socket.h write_socket.c httpserver.m4
 )
 
+find_program(RAGEL ragel)
+if(NOT RAGEL)
+  message(FATAL_ERROR "ragel not found. Please install before continuing.")
+endif()
+
 add_custom_command(
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/parser.c
-  COMMAND ragel ${CMAKE_CURRENT_SOURCE_DIR}/parser.rl -o ${CMAKE_CURRENT_BINARY_DIR}/parser.c
+  COMMAND ${RAGEL} ${CMAKE_CURRENT_SOURCE_DIR}/parser.rl -o ${CMAKE_CURRENT_BINARY_DIR}/parser.c
   DEPENDS parser.rl
 )
 
 target_include_directories(
   evhttpserv
-  INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}
-  PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
-  PRIVATE ${CMAKE_CURRENT_BINARY_DIR}
+  PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 include(CheckFunctionExists)

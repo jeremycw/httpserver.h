@@ -2,8 +2,8 @@
 #include <unistd.h>
 #include "munit.h"
 
-#include "../../src/read_socket.h"
-#include "../../src/common.h"
+#include "read_socket.h"
+#include "common.h"
 #include "../debugbreak.h"
 
 void token_array_init(struct hs_token_array_s *array, int capacity) {
@@ -54,8 +54,8 @@ MunitResult test_read_socket_small_body(const MunitParameter params[], void* dat
 
   hs_read_socket(request, opts);
 
-  munit_assert(request->timeout == HTTP_REQUEST_TIMEOUT);
-  munit_assert(request->server->memused == 1024);
+  munit_assert_int(request->timeout, ==, HTTP_REQUEST_TIMEOUT);
+  munit_assert_int64(request->server->memused, ==, 1024);
   munit_assert(callback_ran);
 
   struct hsh_token_s tok = request->tokens.buf[request->tokens.size-1];
@@ -89,7 +89,7 @@ MunitResult test_read_socket_small_body_expand_buffer(const MunitParameter param
   request->socket = fd;
 
   hs_read_socket(request, opts);
-  munit_assert(request->server->memused == 128);
+  munit_assert_int64(request->server->memused, ==, 128);
 
   struct hsh_token_s tok = request->tokens.buf[request->tokens.size-1];
 
