@@ -1,17 +1,19 @@
 add_library(
-  evhttpserv
+  httpsrv
   api.c connection.c io_events.c ${CMAKE_CURRENT_BINARY_DIR}/parser.c
   read_socket.c request_util.c respond.c server.c write_socket.c
 )
 
+set_property(TARGET httpsrv PROPERTY C_STANDARD 99)
+
 target_compile_options(
-  evhttpserv
+  httpsrv
   PRIVATE -Wall -Wextra -Werror
   $<$<CONFIG:DEBUG>:-fsanitize=address -fsanitize=undefined -fno-sanitize-recover=all>
 )
 
 target_link_options(
-  evhttpserv
+  httpsrv
   PUBLIC $<$<CONFIG:DEBUG>:-fsanitize=address -fsanitize=undefined -fno-sanitize-recover=all>
 )
 
@@ -47,7 +49,7 @@ add_custom_command(
 )
 
 target_include_directories(
-  evhttpserv
+  httpsrv
   PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
@@ -56,10 +58,10 @@ check_function_exists(epoll_wait EPOLL)
 check_function_exists(kqueue KQUEUE)
 
 if(KQUEUE)
-  target_compile_definitions(evhttpserv PRIVATE "KQUEUE")
+  target_compile_definitions(httpsrv PRIVATE "KQUEUE")
 endif()
 
 if(EPOLL)
-  target_compile_definitions(evhttpserv PRIVATE "EPOLL")
+  target_compile_definitions(httpsrv PRIVATE "EPOLL")
 endif()
 
