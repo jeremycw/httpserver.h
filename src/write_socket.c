@@ -10,7 +10,6 @@
 #ifndef HTTPSERVER_IMPL
 #include "buffer_util.h"
 #include "common.h"
-#include "errno.h"
 #include "write_socket.h"
 #endif
 

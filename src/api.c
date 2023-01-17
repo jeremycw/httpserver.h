@@ -18,9 +18,9 @@ int http_server_loop(http_server_t *server) { return server->loop; }
 
 http_server_t *http_server_init(int port, void (*handler)(http_request_t *)) {
 #ifdef KQUEUE
-  return hs_server_init(port, handler, hs_accept_cb, NULL);
+  return hs_server_init(port, handler, hs_on_kqueue_server_event, NULL);
 #else
-  return hs_server_init(port, handler, hs_accept_cb, hs_server_timer_cb);
+  return hs_server_init(port, handler, hs_on_epoll_server_io_event, hs_on_epoll_server_timer_event);
 #endif
 }
 
@@ -76,17 +76,17 @@ void http_response_body(http_response_t *response, char const *body,
 }
 
 void http_respond(http_request_t *request, http_response_t *response) {
-  hs_respond(request, response, hs_write_cb);
+  hs_respond(request, response, hs_begin_write);
 }
 
 void http_respond_chunk(http_request_t *request, http_response_t *response,
                         void (*cb)(http_request_t *)) {
-  hs_respond_chunk(request, response, cb, hs_write_cb);
+  hs_respond_chunk(request, response, cb, hs_begin_write);
 }
 
 void http_respond_chunk_end(http_request_t *request,
                             http_response_t *response) {
-  hs_respond_chunk_end(request, response, hs_write_cb);
+  hs_respond_chunk_end(request, response, hs_begin_write);
 }
 
 http_string_t http_request_method(http_request_t *request) {
@@ -125,5 +125,5 @@ void http_request_read_chunk(struct http_request_s *request,
                              void (*chunk_cb)(struct http_request_s *)) {
   request->state = HTTP_SESSION_READ;
   request->chunk_cb = chunk_cb;
-  hs_read(request);
+  hs_begin_read(request);
 }
