@@ -30,6 +30,8 @@ void hs_terminate_connection(struct http_request_s *request);
  *
  * @param server The http server struct.
  * @param io_cb The callback function to respond to events on the request socket
+ * @param epoll_timer_cb The callback function to respond to timer events for
+ *   epoll. Can be NULL if not using epoll.
  * @param err_responder The procedure to call when memory usage has reached the
  *   given limit. Typically this could respond with a 503 error and close the
  *   connection.
@@ -37,6 +39,7 @@ void hs_terminate_connection(struct http_request_s *request);
  *   instead of regular operation.
  */
 void hs_accept_connections(struct http_server_s *server, hs_io_cb_t io_cb,
+                           hs_io_cb_t epoll_timer_cb,
                            void (*err_responder)(struct http_request_s *),
                            int64_t max_mem_usage);
 

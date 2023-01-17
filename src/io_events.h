@@ -18,7 +18,6 @@ void hs_on_kqueue_server_event(struct kevent *ev);
 
 void hs_on_epoll_server_io_event(struct epoll_event *ev);
 void hs_on_epoll_server_timer_event(struct epoll_event *ev);
-void hs_on_epoll_request_timer_event(struct epoll_event *ev);
 
 #endif
 

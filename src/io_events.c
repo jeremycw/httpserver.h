@@ -14,19 +14,6 @@
 #include "write_socket.h"
 #endif
 
-void _hs_read_socket_and_handle_return_code(http_request_t *request);
-void _hs_write_response_and_handle_return_code(http_request_t *request);
-
-void hs_begin_write(http_request_t *request) {
-  request->state = HTTP_SESSION_WRITE;
-  _hs_write_response_and_handle_return_code(request);
-}
-
-void hs_begin_read(http_request_t *request) {
-  request->state = HTTP_SESSION_READ;
-  _hs_read_socket_and_handle_return_code(request);
-}
-
 void _hs_read_socket_and_handle_return_code(http_request_t *request) {
   struct hs_read_opts_s opts;
   opts.initial_request_buf_capacity = HTTP_REQUEST_BUF_SIZE;
@@ -46,7 +33,9 @@ void _hs_read_socket_and_handle_return_code(http_request_t *request) {
   }
 }
 
-void _hs_write_response_and_handle_return_code(http_request_t *request) {
+void hs_begin_read(http_request_t* request);
+
+void _hs_write_socket_and_handle_return_code(http_request_t *request) {
   enum hs_write_rc_e rc = hs_write_socket(request);
   switch (rc) {
   case HS_WRITE_RC_SUCCESS_CLOSE:
@@ -79,7 +68,7 @@ void _hs_on_kqueue_client_connection_event(struct kevent *ev) {
     if (request->state == HTTP_SESSION_READ) {
       _hs_read_socket_and_handle_return_code(request);
     } else if (request->state == HTTP_SESSION_WRITE) {
-      _hs_write_response_and_handle_return_code(request);
+      _hs_write_socket_and_handle_return_code(request);
     }
   }
 }
@@ -89,7 +78,8 @@ void hs_on_kqueue_server_event(struct kevent *ev) {
   if (ev->filter == EVFILT_TIMER) {
     hs_generate_date_time(server->date);
   } else {
-    hs_accept_connections(server, _hs_on_kqueue_client_connection_event, _hs_mem_error_responder,
+    hs_accept_connections(server, _hs_on_kqueue_client_connection_event, 0,
+                          _hs_mem_error_responder,
                           HTTP_MAX_TOTAL_EST_MEM_USAGE);
   }
 }
@@ -101,12 +91,25 @@ void _hs_on_epoll_client_connection_event(struct epoll_event *ev) {
   if (request->state == HTTP_SESSION_READ) {
     _hs_read_socket_and_handle_return_code(request);
   } else if (request->state == HTTP_SESSION_WRITE) {
-    _hs_write_response_and_handle_return_code(request);
+    _hs_write_socket_and_handle_return_code(request);
   }
 }
 
+void _hs_on_epoll_request_timer_event(struct epoll_event *ev) {
+  http_request_t *request =
+      (http_request_t *)((char *)ev->data.ptr - sizeof(epoll_cb_t));
+  uint64_t res;
+  int bytes = read(request->timerfd, &res, sizeof(res));
+  (void)bytes; // suppress warning
+  request->timeout -= 1;
+  if (request->timeout == 0)
+    hs_terminate_connection(request);
+}
+
 void hs_on_epoll_server_connection_event(struct epoll_event *ev) {
-  hs_accept_connections((http_server_t *)ev->data.ptr, _hs_on_epoll_client_connection_event,
+  hs_accept_connections((http_server_t *)ev->data.ptr,
+                        _hs_on_epoll_client_connection_event,
+                        _hs_on_epoll_request_timer_event,
                         _hs_mem_error_responder);
 }
 
@@ -119,15 +122,15 @@ void hs_on_epoll_server_timer_event(struct epoll_event *ev) {
   hs_generate_date_time(server->date);
 }
 
-void hs_on_epoll_request_timer_event(struct epoll_event *ev) {
-  http_request_t *request =
-      (http_request_t *)((char *)ev->data.ptr - sizeof(epoll_cb_t));
-  uint64_t res;
-  int bytes = read(request->timerfd, &res, sizeof(res));
-  (void)bytes; // suppress warning
-  request->timeout -= 1;
-  if (request->timeout == 0)
-    hs_terminate_connection(request);
+#endif
+
+void hs_begin_write(http_request_t *request) {
+  request->state = HTTP_SESSION_WRITE;
+  _hs_write_socket_and_handle_return_code(request);
 }
 
-#endif
+void hs_begin_read(http_request_t *request) {
+  request->state = HTTP_SESSION_READ;
+  _hs_read_socket_and_handle_return_code(request);
+}
+

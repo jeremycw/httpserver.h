@@ -31,8 +31,9 @@ void _hs_add_server_sock_events(http_server_t *serv) {
   kevent(serv->loop, &ev_set, 1, NULL, 0, NULL);
 }
 
-void _hs_server_init_events(http_server_t *serv, hs_evt_cb_t timer_cb) {
-  (void)timer_cb;
+void _hs_server_init_events(http_server_t *serv, void* unused) {
+  (void)unused;
+
   serv->loop = kqueue();
   struct kevent ev_set;
   EV_SET(&ev_set, 1, EVFILT_TIMER, EV_ADD | EV_ENABLE, NOTE_SECONDS, 1, serv);
@@ -139,13 +140,14 @@ void hs_generate_date_time(char *datetime) {
 }
 
 http_server_t *hs_server_init(int port, void (*handler)(http_request_t *),
-                              hs_evt_cb_t accept_cb, hs_evt_cb_t timer_cb) {
+                              hs_evt_cb_t accept_cb,
+                              hs_evt_cb_t epoll_timer_cb) {
   http_server_t *serv = (http_server_t *)malloc(sizeof(http_server_t));
   assert(serv != NULL);
   serv->port = port;
   serv->memused = 0;
   serv->handler = accept_cb;
-  _hs_server_init_events(serv, timer_cb);
+  _hs_server_init_events(serv, epoll_timer_cb);
   hs_generate_date_time(serv->date);
   serv->request_handler = handler;
   return serv;

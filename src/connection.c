@@ -17,7 +17,9 @@ void _hs_delete_events(http_request_t *request) {
   kevent(request->server->loop, &ev_set, 1, NULL, 0, NULL);
 }
 
-void _hs_add_events(http_request_t *request) {
+void _hs_add_events(http_request_t *request, void* unused) {
+  (void)unused;
+
   struct kevent ev_set[2];
   EV_SET(&ev_set[0], request->socket, EVFILT_READ, EV_ADD, 0, 0, request);
   EV_SET(&ev_set[1], request->socket, EVFILT_TIMER, EV_ADD | EV_ENABLE,
@@ -33,8 +35,8 @@ void _hs_delete_events(http_request_t *request) {
   close(request->timerfd);
 }
 
-void _hs_add_events(http_request_t *request) {
-  request->timer_handler = hs_request_timer_cb;
+void _hs_add_events(http_request_t *request, hs_io_cb_t timer_cb) {
+  request->timer_handler = timer_cb;
 
   // Watch for read events
   struct epoll_event ev;
@@ -86,6 +88,7 @@ void _hs_init_connection(http_request_t *connection) {
 }
 
 void hs_accept_connections(http_server_t *server, hs_io_cb_t io_cb,
+                           hs_io_cb_t epoll_timer_cb,
                            void (*err_responder)(http_request_t *),
                            int64_t max_mem_usage) {
   int sock = 0;
@@ -102,7 +105,7 @@ void hs_accept_connections(http_server_t *server, hs_io_cb_t io_cb,
       connection->handler = io_cb;
       int flags = fcntl(sock, F_GETFL, 0);
       fcntl(sock, F_SETFL, flags | O_NONBLOCK);
-      _hs_add_events(connection);
+      _hs_add_events(connection, epoll_timer_cb);
       _hs_init_connection(connection);
       connection->state = HTTP_SESSION_READ;
       if (connection->server->memused > max_mem_usage) {
