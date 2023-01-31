@@ -57,6 +57,7 @@ MunitResult test_write_socket_partial(const MunitParameter params[], void* data)
   request->buffer.length = 512;
 
   hs_test_write_mode = HS_TEST_WRITE_PARTIAL;
+  hs_test_enable_write_stub(1);
   enum hs_write_rc_e rc = hs_write_socket(request);
 
   munit_assert_int(rc, ==, HS_WRITE_RC_CONTINUE);
