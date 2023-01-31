@@ -1,15 +1,15 @@
-add_executable(run-integration-test-server main.c)
+add_executable(integration-test-server main.c)
 
 include(CheckFunctionExists)
 check_function_exists(epoll_wait EPOLL)
 check_function_exists(kqueue KQUEUE)
 
 if(KQUEUE)
-  target_compile_definitions(run-integration-test-server PRIVATE "KQUEUE")
+  target_compile_definitions(integration-test-server PRIVATE "KQUEUE")
 endif()
 
 if(EPOLL)
-  target_compile_definitions(run-integration-test-server PRIVATE "EPOLL")
+  target_compile_definitions(integration-test-server PRIVATE "EPOLL")
 endif()
 
-target_link_libraries(run-integration-test-server PUBLIC httpsrv)
+target_link_libraries(integration-test-server PUBLIC httpsrv)

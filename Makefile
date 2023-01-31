@@ -3,7 +3,7 @@
 test: test-unit
 
 test-unit: debug
-	./build/test/unit/run-unit-tests
+	./build/test/unit/unit-test-runner
 
 debug: build
 	pushd build; \
