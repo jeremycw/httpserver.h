@@ -67,8 +67,9 @@ void _hs_exec_callback(http_request_t *request,
   cb(request);
 }
 
-enum hs_read_rc_e _hs_parse(http_request_t *request,
-                            int max_request_buf_capacity) {
+enum hs_read_rc_e
+_hs_parse_buffer_and_exec_user_cb(http_request_t *request,
+                                  int max_request_buf_capacity) {
   enum hs_read_rc_e rc = HS_READ_RC_SUCCESS;
 
   do {
@@ -126,8 +127,8 @@ enum hs_read_rc_e _hs_parse(http_request_t *request,
 // fills the tokens array of the request struct. It will also invoke the
 // request_hander callback and the chunk_cb callback in the appropriate
 // scenarios.
-enum hs_read_rc_e hs_read_socket(http_request_t *request,
-                                 struct hs_read_opts_s opts) {
+enum hs_read_rc_e hs_read_request_and_exec_user_cb(http_request_t *request,
+                                                   struct hs_read_opts_s opts) {
   request->state = HTTP_SESSION_READ;
   request->timeout = HTTP_REQUEST_TIMEOUT;
 
@@ -147,5 +148,6 @@ enum hs_read_rc_e hs_read_socket(http_request_t *request,
     }
   }
 
-  return _hs_parse(request, opts.max_request_buf_capacity);
+  return _hs_parse_buffer_and_exec_user_cb(request,
+                                           opts.max_request_buf_capacity);
 }

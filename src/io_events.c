@@ -20,7 +20,7 @@ void _hs_read_socket_and_handle_return_code(http_request_t *request) {
   opts.max_request_buf_capacity = HTTP_MAX_REQUEST_BUF_SIZE;
   opts.eof_rc = 0;
 
-  enum hs_read_rc_e rc = hs_read_socket(request, opts);
+  enum hs_read_rc_e rc = hs_read_request_and_exec_user_cb(request, opts);
   switch (rc) {
   case HS_READ_RC_PARSE_ERR:
     hs_respond_error(request, 400, "Bad Request", hs_begin_write);
@@ -33,7 +33,7 @@ void _hs_read_socket_and_handle_return_code(http_request_t *request) {
   }
 }
 
-void hs_begin_read(http_request_t* request);
+void hs_begin_read(http_request_t *request);
 
 void _hs_write_socket_and_handle_return_code(http_request_t *request) {
   enum hs_write_rc_e rc = hs_write_socket(request);
@@ -107,10 +107,9 @@ void _hs_on_epoll_request_timer_event(struct epoll_event *ev) {
 }
 
 void hs_on_epoll_server_connection_event(struct epoll_event *ev) {
-  hs_accept_connections((http_server_t *)ev->data.ptr,
-                        _hs_on_epoll_client_connection_event,
-                        _hs_on_epoll_request_timer_event,
-                        _hs_mem_error_responder);
+  hs_accept_connections(
+      (http_server_t *)ev->data.ptr, _hs_on_epoll_client_connection_event,
+      _hs_on_epoll_request_timer_event, _hs_mem_error_responder);
 }
 
 void hs_on_epoll_server_timer_event(struct epoll_event *ev) {
@@ -133,4 +132,3 @@ void hs_begin_read(http_request_t *request) {
   request->state = HTTP_SESSION_READ;
   _hs_read_socket_and_handle_return_code(request);
 }
-

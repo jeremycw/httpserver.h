@@ -17,7 +17,7 @@ void _hs_delete_events(http_request_t *request) {
   kevent(request->server->loop, &ev_set, 1, NULL, 0, NULL);
 }
 
-void _hs_add_events(http_request_t *request, void* unused) {
+void _hs_add_events(http_request_t *request, void *unused) {
   (void)unused;
 
   struct kevent ev_set[2];

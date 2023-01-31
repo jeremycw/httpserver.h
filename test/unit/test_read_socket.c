@@ -52,7 +52,7 @@ MunitResult test_read_socket_small_body(const MunitParameter params[], void* dat
   int fd = openat(AT_FDCWD, "test/unit/read_socket.txt", O_RDONLY);
   request->socket = fd;
 
-  hs_read_socket(request, opts);
+  hs_read_request_and_exec_user_cb(request, opts);
 
   munit_assert_int(request->timeout, ==, HTTP_REQUEST_TIMEOUT);
   munit_assert_int64(request->server->memused, ==, 1024);
@@ -88,7 +88,7 @@ MunitResult test_read_socket_small_body_expand_buffer(const MunitParameter param
   int fd = openat(AT_FDCWD, "test/unit/read_socket.txt", O_RDONLY);
   request->socket = fd;
 
-  hs_read_socket(request, opts);
+  hs_read_request_and_exec_user_cb(request, opts);
   munit_assert_int64(request->server->memused, ==, 128);
 
   struct hsh_token_s tok = request->tokens.buf[request->tokens.size-1];
@@ -129,19 +129,19 @@ MunitResult test_read_socket_large_body(const MunitParameter params[], void* dat
   int fd = openat(AT_FDCWD, "test/unit/read_socket.txt", O_RDONLY);
   request->socket = fd;
 
-  hs_read_socket(request, opts);
+  hs_read_request_and_exec_user_cb(request, opts);
 
   munit_assert(HTTP_FLAG_CHECK(request->flags, HTTP_FLG_STREAMED));
   munit_assert_int(callback_ran, ==, 1);
 
-  hs_read_socket(request, opts);
+  hs_read_request_and_exec_user_cb(request, opts);
   munit_assert_int(callback_ran, ==, 2);
 
   struct hsh_token_s tok = request->tokens.buf[request->tokens.size-1];
   munit_assert_memory_equal(tok.len, "Hello, ",
                             &request->buffer.buf[tok.index]);
 
-  hs_read_socket(request, opts);
+  hs_read_request_and_exec_user_cb(request, opts);
   tok = request->tokens.buf[request->tokens.size-1];
   munit_assert_memory_equal(tok.len, "World!",
                             &request->buffer.buf[tok.index]);

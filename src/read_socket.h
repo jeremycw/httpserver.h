@@ -30,7 +30,7 @@ struct hs_read_opts_s {
   int initial_request_buf_capacity;
 };
 
-enum hs_read_rc_e hs_read_socket(struct http_request_s *request,
-                                 struct hs_read_opts_s opts);
+enum hs_read_rc_e hs_read_request_and_exec_user_cb(struct http_request_s *request,
+                                                   struct hs_read_opts_s opts);
 
 #endif

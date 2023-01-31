@@ -31,7 +31,7 @@ void _hs_add_server_sock_events(http_server_t *serv) {
   kevent(serv->loop, &ev_set, 1, NULL, 0, NULL);
 }
 
-void _hs_server_init_events(http_server_t *serv, void* unused) {
+void _hs_server_init_events(http_server_t *serv, void *unused) {
   (void)unused;
 
   serv->loop = kqueue();
