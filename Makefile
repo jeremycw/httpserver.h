@@ -1,9 +1,12 @@
 .PHONY: test clean format check-format debug
 
-test: test-unit
+test: test-unit test-functional
 
 test-unit: debug
 	./build/test/unit/unit-test-runner
+
+test-functional:
+	./test/functional/functional-test-runner
 
 debug: build
 	pushd build; \
