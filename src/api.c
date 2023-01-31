@@ -20,7 +20,7 @@ http_server_t *http_server_init(int port, void (*handler)(http_request_t *)) {
 #ifdef KQUEUE
   return hs_server_init(port, handler, hs_on_kqueue_server_event, NULL);
 #else
-  return hs_server_init(port, handler, hs_on_epoll_server_io_event,
+  return hs_server_init(port, handler, hs_on_epoll_server_connection_event,
                         hs_on_epoll_server_timer_event);
 #endif
 }

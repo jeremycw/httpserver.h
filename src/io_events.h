@@ -16,7 +16,7 @@ void hs_on_kqueue_server_event(struct kevent *ev);
 
 #else
 
-void hs_on_epoll_server_io_event(struct epoll_event *ev);
+void hs_on_epoll_server_connection_event(struct epoll_event *ev);
 void hs_on_epoll_server_timer_event(struct epoll_event *ev);
 
 #endif

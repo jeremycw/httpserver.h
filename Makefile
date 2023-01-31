@@ -9,10 +9,10 @@ test-functional:
 	./test/functional/functional-test-runner
 
 debug: build
-	pushd build; \
+	cd build; \
 	cmake -DCMAKE_BUILD_TYPE=Debug ..; \
 	make; \
-	popd;
+	cd ..;
 
 build:
 	mkdir build

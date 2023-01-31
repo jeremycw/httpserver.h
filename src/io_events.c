@@ -2,6 +2,7 @@
 #include <sys/event.h>
 #else
 #include <sys/epoll.h>
+#include <unistd.h>
 #endif
 
 #ifndef HTTPSERVER_IMPL
@@ -107,9 +108,10 @@ void _hs_on_epoll_request_timer_event(struct epoll_event *ev) {
 }
 
 void hs_on_epoll_server_connection_event(struct epoll_event *ev) {
-  hs_accept_connections(
-      (http_server_t *)ev->data.ptr, _hs_on_epoll_client_connection_event,
-      _hs_on_epoll_request_timer_event, _hs_mem_error_responder);
+  hs_accept_connections((http_server_t *)ev->data.ptr,
+                        _hs_on_epoll_client_connection_event,
+                        _hs_on_epoll_request_timer_event,
+                        _hs_mem_error_responder, HTTP_MAX_TOTAL_EST_MEM_USAGE);
 }
 
 void hs_on_epoll_server_timer_event(struct epoll_event *ev) {

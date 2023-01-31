@@ -29,9 +29,11 @@ void _hs_add_events(http_request_t *request, void *unused) {
 
 #else
 
+#include <sys/timerfd.h>
+
 void _hs_delete_events(http_request_t *request) {
-  epoll_ctl(event_loop, EPOLL_CTL_DEL, request->socket, NULL);
-  epoll_ctl(event_loop, EPOLL_CTL_DEL, request->timerfd, NULL);
+  epoll_ctl(request->server->loop, EPOLL_CTL_DEL, request->socket, NULL);
+  epoll_ctl(request->server->loop, EPOLL_CTL_DEL, request->timerfd, NULL);
   close(request->timerfd);
 }
 

@@ -3,6 +3,11 @@
 #include <stdlib.h>
 #include <time.h>
 
+#ifdef EPOLL
+#include <signal.h>
+#include <sys/timerfd.h>
+#endif
+
 #ifndef HTTPSERVER_IMPL
 #include "common.h"
 #include "server.h"
