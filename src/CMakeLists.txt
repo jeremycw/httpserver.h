@@ -57,11 +57,13 @@ include(CheckFunctionExists)
 check_function_exists(epoll_wait EPOLL)
 check_function_exists(kqueue KQUEUE)
 
+target_compile_definitions(httpsrv PRIVATE $<$<CONFIG:DEBUG>:DEBUG>)
+
 if(KQUEUE)
-  target_compile_definitions(httpsrv PRIVATE "KQUEUE")
+  target_compile_definitions(httpsrv PRIVATE KQUEUE)
 endif()
 
 if(EPOLL)
-  target_compile_definitions(httpsrv PRIVATE "EPOLL")
+  target_compile_definitions(httpsrv PRIVATE EPOLL)
 endif()
 

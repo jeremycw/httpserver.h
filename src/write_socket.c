@@ -13,7 +13,7 @@
 #include "write_socket.h"
 #endif
 
-#ifdef HS_UNIT_TEST
+#ifdef DEBUG
 #define write hs_test_write
 ssize_t hs_test_write(int fd, char const *data, size_t size);
 #endif
