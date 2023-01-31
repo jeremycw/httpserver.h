@@ -12,3 +12,5 @@ src/parser.c
 hs-integration
 html
 latex
+build
+.cache
