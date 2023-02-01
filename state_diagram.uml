@@ -1,0 +1,34 @@
+@startuml
+[*] --> Read : Connection accepted, hs_read
+
+Read : Read the socket into the buffer
+Read : until EWOULDBLOCK
+Read --> ParseHttp : _hs_parse
+
+WaitRead --> Read : hs_connection_io_cb
+WaitRead : Wait for epoll/kqueue read ready
+
+ParseHttp : Parse the new buffered input
+ParseHttp --> RequestCallback : Request ready
+ParseHttp --> ChunkCallback : Chunk ready
+ParseHttp --> WaitRead : Chunk/Request not ready
+
+RequestCallback : Execute server wide request handler
+RequestCallback --> Write : http_respond(_chunk)
+RequestCallback --> Read : http_request_read_chunk
+
+ChunkCallback : Execute request chunk handler
+ChunkCallback --> Read : http_request_read_chunk
+ChunkCallback --> Write : http_respond(_chunk)
+
+Write : Write out the buffer to the socket
+Write : until done or EWOULDBLOCK
+Write --> [*] : Connection: Close
+Write --> WaitWrite : EWOULDBLOCK
+Write --> Read : Connection Keep-Alive
+Write --> ChunkCallback : Transfer-Encoding: chunked
+
+WaitWrite : Wait for epoll/kqueue write ready
+WaitWrite --> Write : hs_connection_io_cb
+
+@enduml

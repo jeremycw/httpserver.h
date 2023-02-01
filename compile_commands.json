@@ -1,0 +1,77 @@
+[
+{
+  "directory": "/Users/jeremywilliams/code/httpserver.h/build/src",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/cc -DKQUEUE -I/Users/jeremywilliams/code/httpserver.h/src -I/Users/jeremywilliams/code/httpserver.h/build/src -g -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX12.3.sdk -Wall -Wextra -Werror -fsanitize=address -fsanitize=undefined -fno-sanitize-recover=all -o CMakeFiles/evhttpserv.dir/api.c.o -c /Users/jeremywilliams/code/httpserver.h/src/api.c",
+  "file": "/Users/jeremywilliams/code/httpserver.h/src/api.c"
+},
+{
+  "directory": "/Users/jeremywilliams/code/httpserver.h/build/src",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/cc -DKQUEUE -I/Users/jeremywilliams/code/httpserver.h/src -I/Users/jeremywilliams/code/httpserver.h/build/src -g -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX12.3.sdk -Wall -Wextra -Werror -fsanitize=address -fsanitize=undefined -fno-sanitize-recover=all -o CMakeFiles/evhttpserv.dir/connection.c.o -c /Users/jeremywilliams/code/httpserver.h/src/connection.c",
+  "file": "/Users/jeremywilliams/code/httpserver.h/src/connection.c"
+},
+{
+  "directory": "/Users/jeremywilliams/code/httpserver.h/build/src",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/cc -DKQUEUE -I/Users/jeremywilliams/code/httpserver.h/src -I/Users/jeremywilliams/code/httpserver.h/build/src -g -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX12.3.sdk -Wall -Wextra -Werror -fsanitize=address -fsanitize=undefined -fno-sanitize-recover=all -o CMakeFiles/evhttpserv.dir/io_events.c.o -c /Users/jeremywilliams/code/httpserver.h/src/io_events.c",
+  "file": "/Users/jeremywilliams/code/httpserver.h/src/io_events.c"
+},
+{
+  "directory": "/Users/jeremywilliams/code/httpserver.h/build/src",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/cc -DKQUEUE -I/Users/jeremywilliams/code/httpserver.h/src -I/Users/jeremywilliams/code/httpserver.h/build/src -g -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX12.3.sdk -Wall -Wextra -Werror -fsanitize=address -fsanitize=undefined -fno-sanitize-recover=all -Wno-unused-variable -o CMakeFiles/evhttpserv.dir/parser.c.o -c /Users/jeremywilliams/code/httpserver.h/build/src/parser.c",
+  "file": "/Users/jeremywilliams/code/httpserver.h/build/src/parser.c"
+},
+{
+  "directory": "/Users/jeremywilliams/code/httpserver.h/build/src",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/cc -DKQUEUE -I/Users/jeremywilliams/code/httpserver.h/src -I/Users/jeremywilliams/code/httpserver.h/build/src -g -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX12.3.sdk -Wall -Wextra -Werror -fsanitize=address -fsanitize=undefined -fno-sanitize-recover=all -o CMakeFiles/evhttpserv.dir/read_socket.c.o -c /Users/jeremywilliams/code/httpserver.h/src/read_socket.c",
+  "file": "/Users/jeremywilliams/code/httpserver.h/src/read_socket.c"
+},
+{
+  "directory": "/Users/jeremywilliams/code/httpserver.h/build/src",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/cc -DKQUEUE -I/Users/jeremywilliams/code/httpserver.h/src -I/Users/jeremywilliams/code/httpserver.h/build/src -g -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX12.3.sdk -Wall -Wextra -Werror -fsanitize=address -fsanitize=undefined -fno-sanitize-recover=all -o CMakeFiles/evhttpserv.dir/request_util.c.o -c /Users/jeremywilliams/code/httpserver.h/src/request_util.c",
+  "file": "/Users/jeremywilliams/code/httpserver.h/src/request_util.c"
+},
+{
+  "directory": "/Users/jeremywilliams/code/httpserver.h/build/src",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/cc -DKQUEUE -I/Users/jeremywilliams/code/httpserver.h/src -I/Users/jeremywilliams/code/httpserver.h/build/src -g -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX12.3.sdk -Wall -Wextra -Werror -fsanitize=address -fsanitize=undefined -fno-sanitize-recover=all -o CMakeFiles/evhttpserv.dir/respond.c.o -c /Users/jeremywilliams/code/httpserver.h/src/respond.c",
+  "file": "/Users/jeremywilliams/code/httpserver.h/src/respond.c"
+},
+{
+  "directory": "/Users/jeremywilliams/code/httpserver.h/build/src",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/cc -DKQUEUE -I/Users/jeremywilliams/code/httpserver.h/src -I/Users/jeremywilliams/code/httpserver.h/build/src -g -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX12.3.sdk -Wall -Wextra -Werror -fsanitize=address -fsanitize=undefined -fno-sanitize-recover=all -o CMakeFiles/evhttpserv.dir/server.c.o -c /Users/jeremywilliams/code/httpserver.h/src/server.c",
+  "file": "/Users/jeremywilliams/code/httpserver.h/src/server.c"
+},
+{
+  "directory": "/Users/jeremywilliams/code/httpserver.h/build/src",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/cc -DKQUEUE -I/Users/jeremywilliams/code/httpserver.h/src -I/Users/jeremywilliams/code/httpserver.h/build/src -g -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX12.3.sdk -Wall -Wextra -Werror -fsanitize=address -fsanitize=undefined -fno-sanitize-recover=all -o CMakeFiles/evhttpserv.dir/write_socket.c.o -c /Users/jeremywilliams/code/httpserver.h/src/write_socket.c",
+  "file": "/Users/jeremywilliams/code/httpserver.h/src/write_socket.c"
+},
+{
+  "directory": "/Users/jeremywilliams/code/httpserver.h/build/test/unit",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/cc -DKQUEUE -I/Users/jeremywilliams/code/httpserver.h/src -g -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX12.3.sdk -o CMakeFiles/evhs-unit.dir/munit.c.o -c /Users/jeremywilliams/code/httpserver.h/test/unit/munit.c",
+  "file": "/Users/jeremywilliams/code/httpserver.h/test/unit/munit.c"
+},
+{
+  "directory": "/Users/jeremywilliams/code/httpserver.h/build/test/unit",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/cc -DKQUEUE -I/Users/jeremywilliams/code/httpserver.h/src -g -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX12.3.sdk -o CMakeFiles/evhs-unit.dir/test_parser.c.o -c /Users/jeremywilliams/code/httpserver.h/test/unit/test_parser.c",
+  "file": "/Users/jeremywilliams/code/httpserver.h/test/unit/test_parser.c"
+},
+{
+  "directory": "/Users/jeremywilliams/code/httpserver.h/build/test/unit",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/cc -DKQUEUE -I/Users/jeremywilliams/code/httpserver.h/src -g -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX12.3.sdk -o CMakeFiles/evhs-unit.dir/test_read_socket.c.o -c /Users/jeremywilliams/code/httpserver.h/test/unit/test_read_socket.c",
+  "file": "/Users/jeremywilliams/code/httpserver.h/test/unit/test_read_socket.c"
+},
+{
+  "directory": "/Users/jeremywilliams/code/httpserver.h/build/test/unit",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/cc -DKQUEUE -I/Users/jeremywilliams/code/httpserver.h/src -g -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX12.3.sdk -o CMakeFiles/evhs-unit.dir/test_write_socket.c.o -c /Users/jeremywilliams/code/httpserver.h/test/unit/test_write_socket.c",
+  "file": "/Users/jeremywilliams/code/httpserver.h/test/unit/test_write_socket.c"
+},
+{
+  "directory": "/Users/jeremywilliams/code/httpserver.h/build/test/unit",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/cc -DKQUEUE -I/Users/jeremywilliams/code/httpserver.h/src -g -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX12.3.sdk -o CMakeFiles/evhs-unit.dir/main.c.o -c /Users/jeremywilliams/code/httpserver.h/test/unit/main.c",
+  "file": "/Users/jeremywilliams/code/httpserver.h/test/unit/main.c"
+},
+{
+  "directory": "/Users/jeremywilliams/code/httpserver.h/build/test/integration",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/cc -DKQUEUE -I/Users/jeremywilliams/code/httpserver.h/src -g -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX12.3.sdk -o CMakeFiles/evhs-int.dir/main.c.o -c /Users/jeremywilliams/code/httpserver.h/test/integration/main.c",
+  "file": "/Users/jeremywilliams/code/httpserver.h/test/integration/main.c"
+}
+]

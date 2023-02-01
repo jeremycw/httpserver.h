@@ -1,0 +1,99 @@
+#!/usr/bin/env sh
+
+run_functional_tests() {
+  echo "Small Response Body:"
+  curl http://localhost:8080/
+
+  echo "\n\nEmpty Response:"
+  curl http://localhost:8080/empty
+
+  echo "\n\nEcho Body:"
+  curl -XPOST http://localhost:8080/echo -d'Echo test'
+
+  echo "\n\nGet Header:"
+  curl http://localhost:8080/host
+
+  echo "\n\nRequest Body larger than max in mem size:"
+  dd if=/dev/urandom of=test.dat bs=25165824 count=1 2> /dev/null
+  curl -H'Expect:' --data-binary @test.dat -o r1.dat http://localhost:8080/large
+  diff r1.dat test.dat
+
+  echo "\n\nChunked Response:"
+  curl http://localhost:8080/chunked
+
+  echo "\n\nChunked Response keep-alive:"
+  curl http://localhost:8080/chunked http://localhost:8080/chunked
+
+  echo "\n\nChunked Response close:"
+  curl -H'Connection: close' http://localhost:8080/chunked http://localhost:8080/chunked
+
+  echo "\n\nChunked Request keep-alive: (expect empty)"
+  dd if=/dev/urandom of=test.dat bs=262144 count=1 2> /dev/null
+  curl -H'Expect:' -H'Transfer-Encoding: chunked' -XPOST --data-binary @test.dat -o r1.dat http://localhost:8080/chunked-req -o r2.dat http://localhost:8080/chunked-req
+  diff r1.dat test.dat
+  diff r2.dat test.dat
+
+  echo "\n\nChunked Request close: (expect empty)"
+  curl -H'Expect:' -H'Transfer-Encoding: chunked' -XPOST --data-binary @test.dat -o r3.dat http://localhost:8080/chunked-req -o r4.dat http://localhost:8080/chunked-req
+  diff r3.dat test.dat
+  diff r4.dat test.dat
+
+  echo "\n\nPoll Server:"
+  curl http://localhost:8081/ &
+  sleep 1
+  curl http://localhost:8080/poll
+  sleep 1
+  curl http://localhost:8080/poll
+
+  echo "\n\nIterate Headers:"
+  curl -H'User-Agent: test-ua' -H'Foo-Header: foo-bar' http://localhost:8080/headers
+
+  echo "\nStress Test keep-alive:"
+  ab -k -c 200 -n 100000 http://127.0.0.1:8080/ > keep-alive.bench
+  cat keep-alive.bench | grep Complete
+  cat keep-alive.bench | grep Non-2xx
+  cat keep-alive.bench 1>&2
+
+  echo "\nStress Test close:"
+  ab -c 20 -n 1000 http://127.0.0.1:8080/ > connection-close.bench
+  cat connection-close.bench | grep Complete
+  cat connection-close.bench | grep Non-2xx
+  cat connection-close.bench 1>&2
+
+  echo "\nStress Test large body:"
+  dd if=/dev/urandom of=test.dat bs=7388608 count=1 2> /dev/null
+  ab -c 2 -n 10 -p test.dat http://127.0.0.1:8080/echo > large-file.bench
+  cat large-file.bench | grep Complete
+  cat large-file.bench | grep Non-2xx
+  cat large-file.bench 1>&2
+  rm *.dat *.bench
+}
+
+run_valgrind_functional_tests() {
+  valgrind --leak-check=full \
+           --show-leak-kinds=all \
+           --track-origins=yes \
+           --verbose \
+           --log-file=valgrind-log.txt \
+           ./http-server &
+  serverpid=$!
+  sleep 3
+  run_functional_tests
+  kill $serverpid
+  sleep 2
+  cat valgrind-log.txt | cut -d = -f 5 | grep ERROR > valgrind-results.txt
+  cat valgrind-log.txt | cut -d = -f 5 | grep 'All heap blocks were freed' >> valgrind-results.txt
+  cat valgrind-log.txt 1>&2
+  diff valgrind-results.txt test/valgrind.txt
+}
+
+run_base_functional_tests() {
+  ./build/test/functional/functional-test-server$1 &
+  serverpid=$!
+  sleep 1
+  run_functional_tests > test-results$1.txt
+  kill $serverpid
+  diff test-results$1.txt test/functional/results.txt
+}
+
+run_base_functional_tests $1

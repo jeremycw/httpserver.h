@@ -1,36 +1,30 @@
-.PHONY: test clean valgrind
+.PHONY: test clean format check-format debug
 
-CFLAGS :=-O3 -std=c99
-CXXFLAGS :=-O3 -std=c++98
+test: test-unit test-functional test-functional-cpp
 
-all: http-server
+test-unit: debug
+	./build/test/unit/unit-test-runner
 
-test: test-results.txt
-	diff test-results.txt test/results.txt
+test-functional: debug
+	./test/functional/functional-test-runner
 
-test-cpp: test-results-cpp.txt
-	diff test-results-cpp.txt test/results.txt
+test-functional-cpp: debug
+	./test/functional/functional-test-runner -cpp
 
-valgrind: valgrind-results.txt
-	diff valgrind-results.txt test/valgrind.txt
+debug: build
+	cd build; \
+	cmake -DCMAKE_BUILD_TYPE=Debug ..; \
+	make; \
+	cd ..;
 
-test-results.txt: http-server test/run
-	./http-server & test/run > test-results.txt; killall http-server;
+build:
+	mkdir build
 
-valgrind-results.txt: http-server
-	test/valgrind
+format:
+	find src -name "*.[h|c]" -exec sh -c 'clang-format --style=LLVM $$0 > $$0.frmt; mv $$0.frmt $$0' {} \;
 
-http-server: test/main.c httpserver.h
-	$(CC) $(CFLAGS) -Wall -Wextra -Werror test/main.c -o http-server
-
-http-server-cpp: test/main.cpp httpserver.h
-	$(CXX) $(CXXFLAGS) -Wall -Wextra -Werror test/main.cpp -o http-server-cpp
-
-test-results-cpp.txt: http-server-cpp
-	./http-server-cpp & test/run > test-results-cpp.txt; killall http-server-cpp;
-
-test/main.cpp: test/main.c
-	cp test/main.c test/main.cpp
+check-format:
+	clang-format --style=LLVM --dry-run -Werror src/*.c
 
 clean:
-	@rm http-server http-server-cpp *.txt
+	@rm -rf build
