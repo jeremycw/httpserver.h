@@ -29,13 +29,28 @@ void _hs_write_buffer_into_socket(struct hsh_buffer_s *buffer,
 void _hs_add_write_event(int event_loop, int request_socket,
                          void *request_ptr) {
 #ifdef KQUEUE
-  struct kevent ev_set[2];
-  EV_SET(&ev_set[0], request_socket, EVFILT_WRITE, EV_ADD | EV_CLEAR, 0, 0,
+  struct kevent ev_set;
+  EV_SET(&ev_set, request_socket, EVFILT_WRITE, EV_ADD | EV_CLEAR, 0, 0,
          request_ptr);
-  kevent(event_loop, ev_set, 2, NULL, 0, NULL);
+  kevent(event_loop, &ev_set, 1, NULL, 0, NULL);
 #else
   struct epoll_event ev;
   ev.events = EPOLLOUT | EPOLLET;
+  ev.data.ptr = request_ptr;
+  epoll_ctl(event_loop, EPOLL_CTL_MOD, request_socket, &ev);
+#endif
+}
+
+void _hs_add_read_event(int event_loop, int request_socket, void *request_ptr) {
+#ifdef KQUEUE
+  // No action needed for kqueue since it's read event stays active. Should
+  // it be disabled during write?
+  (void)event_loop;
+  (void)request_socket;
+  (void)request_ptr;
+#else
+  struct epoll_event ev;
+  ev.events = EPOLLIN | EPOLLET;
   ev.data.ptr = request_ptr;
   epoll_ctl(event_loop, EPOLL_CTL_MOD, request_socket, &ev);
 #endif
@@ -78,8 +93,9 @@ enum hs_write_rc_e hs_write_socket(http_request_t *request) {
     } else {
       if (HTTP_FLAG_CHECK(request->flags, HTTP_KEEP_ALIVE)) {
         request->timeout = HTTP_KEEP_ALIVE_TIMEOUT;
+        _hs_add_read_event(request->server->loop, request->socket,
+                           (void *)request);
         _hs_buffer_free(&request->buffer, &request->server->memused);
-
       } else {
         rc = HS_WRITE_RC_SUCCESS_CLOSE;
       }
