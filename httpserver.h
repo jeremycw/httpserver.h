@@ -1,3 +1,5 @@
+// httpserver.h has been automatically generated from httpserver.m4 and the
+// source files under /src
 #ifndef HTTPSERVER_H
 #define HTTPSERVER_H
 #line 1 "api.h"
@@ -1841,8 +1843,8 @@ _again:
 
 #line 1 "read_socket.c"
 #include <assert.h>
-#include <string.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 #ifndef HTTPSERVER_IMPL
@@ -1942,7 +1944,7 @@ _hs_parse_buffer_and_exec_user_cb(http_request_t *request,
           // body has finished streaming. This is natural when dealing with
           // chunked request bodies but requires us to inject a zero length
           // body for non-chunked requests.
-          struct hsh_token_s token = { };
+          struct hsh_token_s token = {};
           memset(&token, 0, sizeof(struct hsh_token_s));
           token.type = HSH_TOK_BODY;
           _hs_token_array_push(&request->tokens, token);
@@ -2528,8 +2530,8 @@ void _hs_add_events(http_request_t *request, hs_io_cb_t unused) {
 
   struct kevent ev_set[2];
   EV_SET(&ev_set[0], request->socket, EVFILT_READ, EV_ADD, 0, 0, request);
-  EV_SET(&ev_set[1], request->socket, EVFILT_TIMER, EV_ADD | EV_ENABLE,
-         NOTE_SECONDS, 1, request);
+  EV_SET(&ev_set[1], request->socket, EVFILT_TIMER, EV_ADD | EV_ENABLE, 0, 1000,
+         request);
   kevent(request->server->loop, ev_set, 2, NULL, 0, NULL);
 }
 
