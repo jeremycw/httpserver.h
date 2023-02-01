@@ -96,4 +96,4 @@ run_base_functional_tests() {
   diff test-results$1.txt test/functional/results.txt
 }
 
-run_base_functional_tests
+run_base_functional_tests $1

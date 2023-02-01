@@ -83,7 +83,7 @@
     } else {
       // Resize the buffer to hold the full body
       if (parser->content_length + buffer->after_headers_index > buffer->capacity) {
-        buffer->buf = realloc(buffer->buf, parser->content_length + buffer->after_headers_index);
+        buffer->buf = (char*)realloc(buffer->buf, parser->content_length + buffer->after_headers_index);
         buffer->capacity = parser->content_length + buffer->after_headers_index;
       }
       fnext small_body;
