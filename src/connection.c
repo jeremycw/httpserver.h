@@ -23,7 +23,7 @@ void _hs_add_events(http_request_t *request, hs_io_cb_t unused) {
   struct kevent ev_set[2];
   EV_SET(&ev_set[0], request->socket, EVFILT_READ, EV_ADD, 0, 0, request);
   EV_SET(&ev_set[1], request->socket, EVFILT_TIMER, EV_ADD | EV_ENABLE,
-         NOTE_SECONDS, 1, request);
+         0, 1000, request);
   kevent(request->server->loop, ev_set, 2, NULL, 0, NULL);
 }
 
