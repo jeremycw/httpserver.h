@@ -1684,7 +1684,7 @@ _match:
     } else {
       // Resize the buffer to hold the full body
       if (parser->content_length + buffer->after_headers_index > buffer->capacity) {
-        buffer->buf = realloc(buffer->buf, parser->content_length + buffer->after_headers_index);
+        buffer->buf = (char*)realloc(buffer->buf, parser->content_length + buffer->after_headers_index);
         buffer->capacity = parser->content_length + buffer->after_headers_index;
       }
       cs = 88;
@@ -1841,6 +1841,7 @@ _again:
 
 #line 1 "read_socket.c"
 #include <assert.h>
+#include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
 
@@ -1941,7 +1942,8 @@ _hs_parse_buffer_and_exec_user_cb(http_request_t *request,
           // body has finished streaming. This is natural when dealing with
           // chunked request bodies but requires us to inject a zero length
           // body for non-chunked requests.
-          struct hsh_token_s token = {0};
+          struct hsh_token_s token = { };
+          memset(&token, 0, sizeof(struct hsh_token_s));
           token.type = HSH_TOK_BODY;
           _hs_token_array_push(&request->tokens, token);
           _hs_exec_callback(request, request->chunk_cb);
@@ -2287,7 +2289,7 @@ void _hs_add_server_sock_events(http_server_t *serv) {
   kevent(serv->loop, &ev_set, 1, NULL, 0, NULL);
 }
 
-void _hs_server_init_events(http_server_t *serv, void *unused) {
+void _hs_server_init_events(http_server_t *serv, hs_evt_cb_t unused) {
   (void)unused;
 
   serv->loop = kqueue();
@@ -2521,7 +2523,7 @@ void _hs_delete_events(http_request_t *request) {
   kevent(request->server->loop, &ev_set, 1, NULL, 0, NULL);
 }
 
-void _hs_add_events(http_request_t *request, void *unused) {
+void _hs_add_events(http_request_t *request, hs_io_cb_t unused) {
   (void)unused;
 
   struct kevent ev_set[2];
