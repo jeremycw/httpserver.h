@@ -1,3 +1,5 @@
+// httpserver.h has been automatically generated from httpserver.m4 and the
+// source files under /src
 #ifndef HTTPSERVER_H
 #define HTTPSERVER_H
 #line 1 "api.h"
