@@ -1,6 +1,6 @@
 #ifndef HTTPSERVER_H
 #define HTTPSERVER_H
-#line 1 "src/api.h"
+#line 1 "api.h"
 #ifndef HS_API_H
 #define HS_API_H
 /** * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
@@ -491,7 +491,7 @@ int main() {
 
 #endif
 
-#line 1 "src/common.h"
+#line 1 "common.h"
 #ifndef HS_COMMON_H
 #define HS_COMMON_H
 
@@ -512,11 +512,6 @@ int main() {
 
 #define HTTP_KEEP_ALIVE 1
 #define HTTP_CLOSE 0
-
-#ifdef __linux__
-#define _POSIX_C_SOURCE 199309L
-#else
-#endif
 
 #include <arpa/inet.h>
 #include <sys/socket.h>
@@ -625,7 +620,7 @@ typedef struct http_server_s {
 
 #endif
 
-#line 1 "src/buffer_util.h"
+#line 1 "buffer_util.h"
 #ifndef HS_BUFFER_UTIL_H
 #define HS_BUFFER_UTIL_H
 
@@ -646,7 +641,7 @@ static inline void _hs_buffer_free(struct hsh_buffer_s *buffer,
 
 #endif
 
-#line 1 "src/request_util.h"
+#line 1 "request_util.h"
 #ifndef HS_REQUEST_UTIL_H
 #define HS_REQUEST_UTIL_H
 
@@ -672,7 +667,7 @@ http_string_t hs_request_chunk(struct http_request_s *request);
 
 #endif
 
-#line 1 "src/parser.h"
+#line 1 "parser.h"
 #ifndef HTTP_PARSER_H
 #define HTTP_PARSER_H
 
@@ -691,7 +686,7 @@ void hsh_parser_init(struct hsh_parser_s *parser);
 
 #endif
 
-#line 1 "src/read_socket.h"
+#line 1 "read_socket.h"
 #ifndef HS_READ_SOCKET_H
 #define HS_READ_SOCKET_H
 
@@ -724,12 +719,13 @@ struct hs_read_opts_s {
   int initial_request_buf_capacity;
 };
 
-enum hs_read_rc_e hs_read_socket(struct http_request_s *request,
+enum hs_read_rc_e
+hs_read_request_and_exec_user_cb(struct http_request_s *request,
                                  struct hs_read_opts_s opts);
 
 #endif
 
-#line 1 "src/respond.h"
+#line 1 "respond.h"
 #ifndef HS_RESPOND_H
 #define HS_RESPOND_H
 
@@ -779,7 +775,7 @@ void hs_respond_error(struct http_request_s *request, int code,
 
 #endif
 
-#line 1 "src/server.h"
+#line 1 "server.h"
 #ifndef HS_SERVER_H
 #define HS_SERVER_H
 
@@ -803,7 +799,7 @@ int hs_poll(struct http_server_s *serv);
 
 #endif
 
-#line 1 "src/write_socket.h"
+#line 1 "write_socket.h"
 #ifndef HS_WRITE_SOCKET_H
 #define HS_WRITE_SOCKET_H
 
@@ -829,7 +825,7 @@ enum hs_write_rc_e hs_write_socket(struct http_request_s *request);
 
 #endif
 
-#line 1 "src/connection.h"
+#line 1 "connection.h"
 #ifndef HS_CONNECTION_H
 #define HS_CONNECTION_H
 
@@ -862,6 +858,8 @@ void hs_terminate_connection(struct http_request_s *request);
  *
  * @param server The http server struct.
  * @param io_cb The callback function to respond to events on the request socket
+ * @param epoll_timer_cb The callback function to respond to timer events for
+ *   epoll. Can be NULL if not using epoll.
  * @param err_responder The procedure to call when memory usage has reached the
  *   given limit. Typically this could respond with a 503 error and close the
  *   connection.
@@ -869,12 +867,13 @@ void hs_terminate_connection(struct http_request_s *request);
  *   instead of regular operation.
  */
 void hs_accept_connections(struct http_server_s *server, hs_io_cb_t io_cb,
+                           hs_io_cb_t epoll_timer_cb,
                            void (*err_responder)(struct http_request_s *),
                            int64_t max_mem_usage);
 
 #endif
 
-#line 1 "src/io_events.h"
+#line 1 "io_events.h"
 #ifndef HS_IO_EVENTS_H
 #define HS_IO_EVENTS_H
 
@@ -884,20 +883,17 @@ void hs_accept_connections(struct http_server_s *server, hs_io_cb_t io_cb,
 
 struct http_request_s;
 
-void hs_write_cb(struct http_request_s *request);
-void hs_read(struct http_request_s *request);
+void hs_begin_write(struct http_request_s *request);
+void hs_begin_read(struct http_request_s *request);
 
 #ifdef KQUEUE
 
-void hs_connection_io_cb(struct kevent *ev);
-void hs_accept_cb(struct kevent *ev);
+void hs_on_kqueue_server_event(struct kevent *ev);
 
 #else
 
-void hs_connection_io_cb(struct epoll_event *ev);
-void hs_accept_cb(struct epoll_event *ev);
-void hs_server_timer_cb(struct epoll_event *ev);
-void hs_request_timer_cb(struct epoll_event *ev);
+void hs_on_epoll_server_connection_event(struct epoll_event *ev);
+void hs_on_epoll_server_timer_event(struct epoll_event *ev);
 
 #endif
 
@@ -906,7 +902,7 @@ void hs_request_timer_cb(struct epoll_event *ev);
 #ifdef HTTPSERVER_IMPL
 #ifndef HTTPSERVER_IMPL_ONCE
 #define HTTPSERVER_IMPL_ONCE
-#line 1 "src/api.c"
+#line 1 "api.c"
 #include <stdlib.h>
 
 #ifndef HTTPSERVER_IMPL
@@ -927,9 +923,10 @@ int http_server_loop(http_server_t *server) { return server->loop; }
 
 http_server_t *http_server_init(int port, void (*handler)(http_request_t *)) {
 #ifdef KQUEUE
-  return hs_server_init(port, handler, hs_accept_cb, NULL);
+  return hs_server_init(port, handler, hs_on_kqueue_server_event, NULL);
 #else
-  return hs_server_init(port, handler, hs_accept_cb, hs_server_timer_cb);
+  return hs_server_init(port, handler, hs_on_epoll_server_connection_event,
+                        hs_on_epoll_server_timer_event);
 #endif
 }
 
@@ -985,17 +982,17 @@ void http_response_body(http_response_t *response, char const *body,
 }
 
 void http_respond(http_request_t *request, http_response_t *response) {
-  hs_respond(request, response, hs_write_cb);
+  hs_respond(request, response, hs_begin_write);
 }
 
 void http_respond_chunk(http_request_t *request, http_response_t *response,
                         void (*cb)(http_request_t *)) {
-  hs_respond_chunk(request, response, cb, hs_write_cb);
+  hs_respond_chunk(request, response, cb, hs_begin_write);
 }
 
 void http_respond_chunk_end(http_request_t *request,
                             http_response_t *response) {
-  hs_respond_chunk_end(request, response, hs_write_cb);
+  hs_respond_chunk_end(request, response, hs_begin_write);
 }
 
 http_string_t http_request_method(http_request_t *request) {
@@ -1034,10 +1031,10 @@ void http_request_read_chunk(struct http_request_s *request,
                              void (*chunk_cb)(struct http_request_s *)) {
   request->state = HTTP_SESSION_READ;
   request->chunk_cb = chunk_cb;
-  hs_read(request);
+  hs_begin_read(request);
 }
 
-#line 1 "src/request_util.c"
+#line 1 "request_util.c"
 #include <stdlib.h>
 #include <string.h>
 
@@ -1148,9 +1145,9 @@ http_string_t hs_request_chunk(struct http_request_s *request) {
                          .len = token.len};
 }
 
-#line 1 "src/parser.c"
+#line 1 "parser.c"
 
-#line 1 "src/parser.rl"
+#line 1 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
 #include <string.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1174,11 +1171,11 @@ http_string_t hs_request_chunk(struct http_request_s *request) {
   parser->limit_max = max_len;
 
 
-#line 235 "src/parser.rl"
+#line 235 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
 
 
 
-#line 31 "src/parser.c"
+#line 31 "/Users/jeremywilliams/code/httpserver.h/build/src/parser.c"
 static const char _hsh_http_actions[] = {
 	0, 1, 2, 1, 6, 1, 10, 1, 
 	13, 1, 14, 1, 15, 1, 16, 1, 
@@ -1505,7 +1502,7 @@ static const int hsh_http_en_large_body = 89;
 static const int hsh_http_en_main = 1;
 
 
-#line 238 "src/parser.rl"
+#line 238 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
 
 void hsh_parser_init(struct hsh_parser_s* parser) {
   memset(parser, 0, sizeof(struct hsh_parser_s));
@@ -1523,7 +1520,7 @@ struct hsh_token_s hsh_parser_exec(struct hsh_parser_s* parser, struct hsh_buffe
   char *p = buffer->buf + buffer->index;
   char *pe = buffer->buf + buffer->length;
   
-#line 376 "src/parser.c"
+#line 376 "/Users/jeremywilliams/code/httpserver.h/build/src/parser.c"
 	{
 	int _klen;
 	unsigned int _trans;
@@ -1598,27 +1595,27 @@ _match:
 		switch ( *_acts++ )
 		{
 	case 0:
-#line 26 "src/parser.rl"
+#line 26 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
 	{ HSH_ENTER_TOKEN(HSH_TOK_METHOD, 32) }
 	break;
 	case 1:
-#line 27 "src/parser.rl"
+#line 27 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
 	{ HSH_ENTER_TOKEN(HSH_TOK_TARGET, 1024) }
 	break;
 	case 2:
-#line 28 "src/parser.rl"
+#line 28 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
 	{ HSH_ENTER_TOKEN(HSH_TOK_VERSION, 16) }
 	break;
 	case 3:
-#line 29 "src/parser.rl"
+#line 29 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
 	{ HSH_ENTER_TOKEN(HSH_TOK_HEADER_KEY, 256) }
 	break;
 	case 4:
-#line 30 "src/parser.rl"
+#line 30 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
 	{ HSH_ENTER_TOKEN(HSH_TOK_HEADER_VALUE, 4096) }
 	break;
 	case 5:
-#line 31 "src/parser.rl"
+#line 31 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
 	{
     parser->token.type = HSH_TOK_BODY;
     parser->token.flags = 0;
@@ -1626,7 +1623,7 @@ _match:
   }
 	break;
 	case 6:
-#line 36 "src/parser.rl"
+#line 36 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
 	{
     parser->token.len = p - (buffer->buf + parser->token.index);
     // hsh_token_array_push(&parser->tokens, parser->token);
@@ -1635,27 +1632,27 @@ _match:
   }
 	break;
 	case 7:
-#line 43 "src/parser.rl"
+#line 43 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
 	{
     parser->content_length *= 10;
     parser->content_length += (*p) - '0';
   }
 	break;
 	case 8:
-#line 48 "src/parser.rl"
+#line 48 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
 	{
     HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_CHUNKED);
   }
 	break;
 	case 9:
-#line 52 "src/parser.rl"
+#line 52 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
 	{
     parser->limit_count = 0;
     parser->limit_max = 256;
   }
 	break;
 	case 10:
-#line 57 "src/parser.rl"
+#line 57 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
 	{
     parser->limit_count++;
     if (parser->limit_count > parser->limit_max) {
@@ -1665,7 +1662,7 @@ _match:
   }
 	break;
 	case 11:
-#line 65 "src/parser.rl"
+#line 65 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
 	{
     buffer->after_headers_index = p - buffer->buf + 1;
     parser->content_remaining = parser->content_length;
@@ -1696,13 +1693,13 @@ _match:
   }
 	break;
 	case 12:
-#line 94 "src/parser.rl"
+#line 94 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
 	{
     parser->content_length = 0;
   }
 	break;
 	case 13:
-#line 98 "src/parser.rl"
+#line 98 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
 	{
     if ((*p) >= 'A' && (*p) <= 'F') {
       parser->content_length *= 0x10;
@@ -1717,7 +1714,7 @@ _match:
   }
 	break;
 	case 14:
-#line 111 "src/parser.rl"
+#line 111 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
 	{
     char* last_body_byte = buffer->buf + parser->token.index + parser->content_length - 1;
     if (pe >= last_body_byte) {
@@ -1741,7 +1738,7 @@ _match:
   }
 	break;
 	case 15:
-#line 133 "src/parser.rl"
+#line 133 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
 	{
     // write 0 byte body to tokens
     parser->token.type = HSH_TOK_BODY;
@@ -1754,7 +1751,7 @@ _match:
   }
 	break;
 	case 16:
-#line 144 "src/parser.rl"
+#line 144 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
 	{
     parser->token.index = buffer->after_headers_index;
     parser->token.len = parser->content_length;
@@ -1770,7 +1767,7 @@ _match:
   }
 	break;
 	case 17:
-#line 158 "src/parser.rl"
+#line 158 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
 	{
     parser->token.index = buffer->after_headers_index;
     char* last_body_byte = buffer->buf + buffer->after_headers_index + parser->content_remaining - 1;
@@ -1793,13 +1790,13 @@ _match:
   }
 	break;
 	case 18:
-#line 179 "src/parser.rl"
+#line 179 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
 	{
     // parser->rc = (int8_t)HSH_PARSER_ERR;
     {p++; goto _out; }
   }
 	break;
-#line 652 "src/parser.c"
+#line 652 "/Users/jeremywilliams/code/httpserver.h/build/src/parser.c"
 		}
 	}
 
@@ -1816,13 +1813,13 @@ _again:
 	while ( __nacts-- > 0 ) {
 		switch ( *__acts++ ) {
 	case 18:
-#line 179 "src/parser.rl"
+#line 179 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
 	{
     // parser->rc = (int8_t)HSH_PARSER_ERR;
     {p++; goto _out; }
   }
 	break;
-#line 675 "src/parser.c"
+#line 675 "/Users/jeremywilliams/code/httpserver.h/build/src/parser.c"
 		}
 	}
 	}
@@ -1830,7 +1827,7 @@ _again:
 	_out: {}
 	}
 
-#line 255 "src/parser.rl"
+#line 255 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
   parser->state = cs;
   buffer->index = p - buffer->buf;
   if (HTTP_FLAG_CHECK(parser->flags, HSH_P_FLAG_TOKEN_READY)) {
@@ -1842,7 +1839,7 @@ _again:
   }
 }
 
-#line 1 "src/read_socket.c"
+#line 1 "read_socket.c"
 #include <assert.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -1912,8 +1909,9 @@ void _hs_exec_callback(http_request_t *request,
   cb(request);
 }
 
-enum hs_read_rc_e _hs_parse(http_request_t *request,
-                            int max_request_buf_capacity) {
+enum hs_read_rc_e
+_hs_parse_buffer_and_exec_user_cb(http_request_t *request,
+                                  int max_request_buf_capacity) {
   enum hs_read_rc_e rc = HS_READ_RC_SUCCESS;
 
   do {
@@ -1971,8 +1969,8 @@ enum hs_read_rc_e _hs_parse(http_request_t *request,
 // fills the tokens array of the request struct. It will also invoke the
 // request_hander callback and the chunk_cb callback in the appropriate
 // scenarios.
-enum hs_read_rc_e hs_read_socket(http_request_t *request,
-                                 struct hs_read_opts_s opts) {
+enum hs_read_rc_e hs_read_request_and_exec_user_cb(http_request_t *request,
+                                                   struct hs_read_opts_s opts) {
   request->state = HTTP_SESSION_READ;
   request->timeout = HTTP_REQUEST_TIMEOUT;
 
@@ -1992,10 +1990,11 @@ enum hs_read_rc_e hs_read_socket(http_request_t *request,
     }
   }
 
-  return _hs_parse(request, opts.max_request_buf_capacity);
+  return _hs_parse_buffer_and_exec_user_cb(request,
+                                           opts.max_request_buf_capacity);
 }
 
-#line 1 "src/respond.c"
+#line 1 "respond.c"
 #include <assert.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -2249,11 +2248,16 @@ void hs_respond_error(http_request_t *request, int code, char const *message,
   http_write(request);
 }
 
-#line 1 "src/server.c"
+#line 1 "server.c"
 #include <assert.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <time.h>
+
+#ifdef EPOLL
+#include <signal.h>
+#include <sys/timerfd.h>
+#endif
 
 #ifndef HTTPSERVER_IMPL
 #include "common.h"
@@ -2283,8 +2287,9 @@ void _hs_add_server_sock_events(http_server_t *serv) {
   kevent(serv->loop, &ev_set, 1, NULL, 0, NULL);
 }
 
-void _hs_server_init_events(http_server_t *serv, hs_evt_cb_t timer_cb) {
-  (void)timer_cb;
+void _hs_server_init_events(http_server_t *serv, void *unused) {
+  (void)unused;
+
   serv->loop = kqueue();
   struct kevent ev_set;
   EV_SET(&ev_set, 1, EVFILT_TIMER, EV_ADD | EV_ENABLE, NOTE_SECONDS, 1, serv);
@@ -2391,19 +2396,20 @@ void hs_generate_date_time(char *datetime) {
 }
 
 http_server_t *hs_server_init(int port, void (*handler)(http_request_t *),
-                              hs_evt_cb_t accept_cb, hs_evt_cb_t timer_cb) {
+                              hs_evt_cb_t accept_cb,
+                              hs_evt_cb_t epoll_timer_cb) {
   http_server_t *serv = (http_server_t *)malloc(sizeof(http_server_t));
   assert(serv != NULL);
   serv->port = port;
   serv->memused = 0;
   serv->handler = accept_cb;
-  _hs_server_init_events(serv, timer_cb);
+  _hs_server_init_events(serv, epoll_timer_cb);
   hs_generate_date_time(serv->date);
   serv->request_handler = handler;
   return serv;
 }
 
-#line 1 "src/write_socket.c"
+#line 1 "write_socket.c"
 #include <errno.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -2416,11 +2422,10 @@ http_server_t *hs_server_init(int port, void (*handler)(http_request_t *),
 #ifndef HTTPSERVER_IMPL
 #include "buffer_util.h"
 #include "common.h"
-#include "errno.h"
 #include "write_socket.h"
 #endif
 
-#ifdef HS_UNIT_TEST
+#ifdef DEBUG
 #define write hs_test_write
 ssize_t hs_test_write(int fd, char const *data, size_t size);
 #endif
@@ -2496,7 +2501,7 @@ enum hs_write_rc_e hs_write_socket(http_request_t *request) {
   return rc;
 }
 
-#line 1 "src/connection.c"
+#line 1 "connection.c"
 #include <assert.h>
 #include <fcntl.h>
 #include <stdlib.h>
@@ -2516,7 +2521,9 @@ void _hs_delete_events(http_request_t *request) {
   kevent(request->server->loop, &ev_set, 1, NULL, 0, NULL);
 }
 
-void _hs_add_events(http_request_t *request) {
+void _hs_add_events(http_request_t *request, void *unused) {
+  (void)unused;
+
   struct kevent ev_set[2];
   EV_SET(&ev_set[0], request->socket, EVFILT_READ, EV_ADD, 0, 0, request);
   EV_SET(&ev_set[1], request->socket, EVFILT_TIMER, EV_ADD | EV_ENABLE,
@@ -2526,14 +2533,16 @@ void _hs_add_events(http_request_t *request) {
 
 #else
 
+#include <sys/timerfd.h>
+
 void _hs_delete_events(http_request_t *request) {
-  epoll_ctl(event_loop, EPOLL_CTL_DEL, request->socket, NULL);
-  epoll_ctl(event_loop, EPOLL_CTL_DEL, request->timerfd, NULL);
+  epoll_ctl(request->server->loop, EPOLL_CTL_DEL, request->socket, NULL);
+  epoll_ctl(request->server->loop, EPOLL_CTL_DEL, request->timerfd, NULL);
   close(request->timerfd);
 }
 
-void _hs_add_events(http_request_t *request) {
-  request->timer_handler = hs_request_timer_cb;
+void _hs_add_events(http_request_t *request, hs_io_cb_t timer_cb) {
+  request->timer_handler = timer_cb;
 
   // Watch for read events
   struct epoll_event ev;
@@ -2585,6 +2594,7 @@ void _hs_init_connection(http_request_t *connection) {
 }
 
 void hs_accept_connections(http_server_t *server, hs_io_cb_t io_cb,
+                           hs_io_cb_t epoll_timer_cb,
                            void (*err_responder)(http_request_t *),
                            int64_t max_mem_usage) {
   int sock = 0;
@@ -2601,7 +2611,7 @@ void hs_accept_connections(http_server_t *server, hs_io_cb_t io_cb,
       connection->handler = io_cb;
       int flags = fcntl(sock, F_GETFL, 0);
       fcntl(sock, F_SETFL, flags | O_NONBLOCK);
-      _hs_add_events(connection);
+      _hs_add_events(connection, epoll_timer_cb);
       _hs_init_connection(connection);
       connection->state = HTTP_SESSION_READ;
       if (connection->server->memused > max_mem_usage) {
@@ -2611,11 +2621,12 @@ void hs_accept_connections(http_server_t *server, hs_io_cb_t io_cb,
   } while (sock > 0);
 }
 
-#line 1 "src/io_events.c"
+#line 1 "io_events.c"
 #ifdef KQUEUE
 #include <sys/event.h>
 #else
 #include <sys/epoll.h>
+#include <unistd.h>
 #endif
 
 #ifndef HTTPSERVER_IMPL
@@ -2628,102 +2639,88 @@ void hs_accept_connections(http_server_t *server, hs_io_cb_t io_cb,
 #include "write_socket.h"
 #endif
 
-void _hs_connection_process_io(http_request_t *request);
+void _hs_read_socket_and_handle_return_code(http_request_t *request) {
+  struct hs_read_opts_s opts;
+  opts.initial_request_buf_capacity = HTTP_REQUEST_BUF_SIZE;
+  opts.max_request_buf_capacity = HTTP_MAX_REQUEST_BUF_SIZE;
+  opts.eof_rc = 0;
 
-void hs_write_cb(http_request_t *request) {
-  request->state = HTTP_SESSION_WRITE;
-  _hs_connection_process_io(request);
+  enum hs_read_rc_e rc = hs_read_request_and_exec_user_cb(request, opts);
+  switch (rc) {
+  case HS_READ_RC_PARSE_ERR:
+    hs_respond_error(request, 400, "Bad Request", hs_begin_write);
+    break;
+  case HS_READ_RC_SOCKET_ERR:
+    hs_terminate_connection(request);
+    break;
+  case HS_READ_RC_SUCCESS:
+    break;
+  }
 }
 
-void hs_read(http_request_t *request) {
-  request->state = HTTP_SESSION_READ;
-  _hs_connection_process_io(request);
-}
+void hs_begin_read(http_request_t *request);
 
-void _hs_connection_process_io(http_request_t *request) {
-  if (request->state == HTTP_SESSION_READ) {
-    struct hs_read_opts_s opts;
-    opts.initial_request_buf_capacity = HTTP_REQUEST_BUF_SIZE;
-    opts.max_request_buf_capacity = HTTP_MAX_REQUEST_BUF_SIZE;
-    opts.eof_rc = 0;
-
-    enum hs_read_rc_e rc = hs_read_socket(request, opts);
-    switch (rc) {
-    case HS_READ_RC_PARSE_ERR:
-      hs_respond_error(request, 400, "Bad Request", hs_write_cb);
-      break;
-    case HS_READ_RC_SOCKET_ERR:
-      hs_terminate_connection(request);
-      break;
-    case HS_READ_RC_SUCCESS:
-      break;
-    }
-  } else if (request->state == HTTP_SESSION_WRITE) {
-    enum hs_write_rc_e rc = hs_write_socket(request);
-    switch (rc) {
-    case HS_WRITE_RC_SUCCESS_CLOSE:
-    case HS_WRITE_RC_SOCKET_ERR:
-      // Error or response complete, connection: close
-      hs_terminate_connection(request);
-      break;
-    case HS_WRITE_RC_SUCCESS:
-      // Response complete, keep-alive connection
-      hs_read(request);
-      break;
-    default:
-      break;
-    }
+void _hs_write_socket_and_handle_return_code(http_request_t *request) {
+  enum hs_write_rc_e rc = hs_write_socket(request);
+  switch (rc) {
+  case HS_WRITE_RC_SUCCESS_CLOSE:
+  case HS_WRITE_RC_SOCKET_ERR:
+    // Error or response complete, connection: close
+    hs_terminate_connection(request);
+    break;
+  case HS_WRITE_RC_SUCCESS:
+    // Response complete, keep-alive connection
+    hs_begin_read(request);
+    break;
+  default:
+    break;
   }
 }
 
 void _hs_mem_error_responder(http_request_t *request) {
-  hs_respond_error(request, 503, "Service Unavailable", hs_write_cb);
+  hs_respond_error(request, 503, "Service Unavailable", hs_begin_write);
 }
 
 #ifdef KQUEUE
 
-void hs_connection_io_cb(struct kevent *ev) {
+void _hs_on_kqueue_client_connection_event(struct kevent *ev) {
   http_request_t *request = (http_request_t *)ev->udata;
   if (ev->filter == EVFILT_TIMER) {
     request->timeout -= 1;
     if (request->timeout == 0)
       hs_terminate_connection(request);
   } else {
-    _hs_connection_process_io(request);
+    if (request->state == HTTP_SESSION_READ) {
+      _hs_read_socket_and_handle_return_code(request);
+    } else if (request->state == HTTP_SESSION_WRITE) {
+      _hs_write_socket_and_handle_return_code(request);
+    }
   }
 }
 
-void hs_accept_cb(struct kevent *ev) {
+void hs_on_kqueue_server_event(struct kevent *ev) {
   http_server_t *server = (http_server_t *)ev->udata;
   if (ev->filter == EVFILT_TIMER) {
     hs_generate_date_time(server->date);
   } else {
-    hs_accept_connections(server, hs_connection_io_cb, _hs_mem_error_responder,
+    hs_accept_connections(server, _hs_on_kqueue_client_connection_event, 0,
+                          _hs_mem_error_responder,
                           HTTP_MAX_TOTAL_EST_MEM_USAGE);
   }
 }
 
 #else
 
-void hs_connection_io_cb(struct epoll_event *ev) {
-  _hs_connection_process_io((http_request_t *)ev->data.ptr);
+void _hs_on_epoll_client_connection_event(struct epoll_event *ev) {
+  http_request_t *request = (http_request_t *)ev->data.ptr;
+  if (request->state == HTTP_SESSION_READ) {
+    _hs_read_socket_and_handle_return_code(request);
+  } else if (request->state == HTTP_SESSION_WRITE) {
+    _hs_write_socket_and_handle_return_code(request);
+  }
 }
 
-void hs_accept_cb(struct epoll_event *ev) {
-  hs_accept_connections((http_server_t *)ev->data.ptr, hs_connection_io_cb,
-                        _hs_mem_error_responder);
-}
-
-void hs_server_timer_cb(struct epoll_event *ev) {
-  http_server_t *server =
-      (http_server_t *)((char *)ev->data.ptr - sizeof(epoll_cb_t));
-  uint64_t res;
-  int bytes = read(server->timerfd, &res, sizeof(res));
-  (void)bytes; // suppress warning
-  hs_generate_date_time(server->date);
-}
-
-void hs_request_timer_cb(struct epoll_event *ev) {
+void _hs_on_epoll_request_timer_event(struct epoll_event *ev) {
   http_request_t *request =
       (http_request_t *)((char *)ev->data.ptr - sizeof(epoll_cb_t));
   uint64_t res;
@@ -2734,7 +2731,33 @@ void hs_request_timer_cb(struct epoll_event *ev) {
     hs_terminate_connection(request);
 }
 
+void hs_on_epoll_server_connection_event(struct epoll_event *ev) {
+  hs_accept_connections((http_server_t *)ev->data.ptr,
+                        _hs_on_epoll_client_connection_event,
+                        _hs_on_epoll_request_timer_event,
+                        _hs_mem_error_responder, HTTP_MAX_TOTAL_EST_MEM_USAGE);
+}
+
+void hs_on_epoll_server_timer_event(struct epoll_event *ev) {
+  http_server_t *server =
+      (http_server_t *)((char *)ev->data.ptr - sizeof(epoll_cb_t));
+  uint64_t res;
+  int bytes = read(server->timerfd, &res, sizeof(res));
+  (void)bytes; // suppress warning
+  hs_generate_date_time(server->date);
+}
+
 #endif
+
+void hs_begin_write(http_request_t *request) {
+  request->state = HTTP_SESSION_WRITE;
+  _hs_write_socket_and_handle_return_code(request);
+}
+
+void hs_begin_read(http_request_t *request) {
+  request->state = HTTP_SESSION_READ;
+  _hs_read_socket_and_handle_return_code(request);
+}
 
 #endif
 #endif
