@@ -16,6 +16,6 @@ jobs:
     - name: make check-format
       run: make check-format
     - name: apt-get
-      run: sudo apt-get install -y apache2-utils ragel
+      run: sudo apt-get install -y apache2-utils ragel iwyu
     - name: make
       run: make

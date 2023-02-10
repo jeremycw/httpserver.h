@@ -1,9 +1,9 @@
 #include <unistd.h>
+#include <stdlib.h>
 #include "munit.h"
 
 #include "write_socket.h"
 #include "common.h"
-#include "../debugbreak.h"
 
 enum hs_test_write_mode_e {
   HS_TEST_WRITE_SUCCESS,

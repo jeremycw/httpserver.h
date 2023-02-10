@@ -1,6 +1,10 @@
 #define HTTPSERVER_IMPL
 #include "../../build/src/httpserver.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <signal.h>
+#include <unistd.h>
 
 #define RESPONSE "Hello, World!"
 
