@@ -1,10 +1,10 @@
 #include <fcntl.h>
 #include <unistd.h>
+#include <stdlib.h>
 #include "munit.h"
 
 #include "read_socket.h"
 #include "common.h"
-#include "../debugbreak.h"
 
 void token_array_init(struct hs_token_array_s *array, int capacity) {
   array->buf =

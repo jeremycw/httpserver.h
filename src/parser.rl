@@ -1,8 +1,5 @@
 #include <string.h>
 #include <stdlib.h>
-#include <string.h>
-#include <stdint.h>
-#include <assert.h>
 
 #ifndef HTTPSERVER_IMPL
 #include "common.h"

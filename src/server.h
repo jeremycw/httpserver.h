@@ -2,9 +2,17 @@
 #define HS_SERVER_H
 
 #ifdef KQUEUE
+
+struct kevent;
+
 typedef void (*hs_evt_cb_t)(struct kevent *ev);
+
 #else
+
+struct epoll_event;
+
 typedef void (*hs_evt_cb_t)(struct epoll_event *ev);
+
 #endif
 
 struct http_request_s;

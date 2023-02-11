@@ -13,7 +13,7 @@ test-functional-cpp: debug
 
 debug: build
 	cd build; \
-	cmake -DCMAKE_BUILD_TYPE=Debug ..; \
+	cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_INCLUDE_WHAT_YOU_USE="include-what-you-use;-Xiwyu;--mapping_file=$(shell pwd)/iwyu.imp" ..; \
 	make; \
 	cd ..;
 

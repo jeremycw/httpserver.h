@@ -1,11 +1,17 @@
+#include <arpa/inet.h>
 #include <assert.h>
 #include <fcntl.h>
+#include <netinet/in.h>
+#include <signal.h>
 #include <stdlib.h>
+#include <sys/socket.h>
 #include <time.h>
 
 #ifdef EPOLL
-#include <signal.h>
+#include <sys/epoll.h>
 #include <sys/timerfd.h>
+#else
+#include <sys/event.h>
 #endif
 
 #ifndef HTTPSERVER_IMPL

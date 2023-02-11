@@ -1,3 +1,5 @@
+#include <stddef.h>
+
 #include "munit.h"
 #include "test_parser.h"
 #include "test_read_socket.h"

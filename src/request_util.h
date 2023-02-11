@@ -1,6 +1,8 @@
 #ifndef HS_REQUEST_UTIL_H
 #define HS_REQUEST_UTIL_H
 
+#include "common.h"
+
 // http version indicators
 #define HTTP_1_0 0
 #define HTTP_1_1 1

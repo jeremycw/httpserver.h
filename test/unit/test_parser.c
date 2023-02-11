@@ -1,9 +1,9 @@
 #include "munit.h"
-#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "common.h"
 #include "parser.h"
-#include "../debugbreak.h"
 
 void setup_buffer_and_parser(struct hsh_parser_s *parser,
                              struct hsh_buffer_s *buffer, char const *req_str) {

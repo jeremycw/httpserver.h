@@ -1,15 +1,17 @@
 #ifndef HS_CONNECTION_H
 #define HS_CONNECTION_H
 
-#ifdef KQUEUE
-typedef void (*hs_io_cb_t)(struct kevent *ev);
-#else
-typedef void (*hs_io_cb_t)(struct epoll_event *ev);
-#endif
-
 // Forward declarations
 struct http_request_s;
 struct http_server_s;
+
+#ifdef KQUEUE
+struct kevent;
+typedef void (*hs_io_cb_t)(struct kevent *ev);
+#else
+struct epoll_event;
+typedef void (*hs_io_cb_t)(struct epoll_event *ev);
+#endif
 
 /* Closes the requests socket and frees its resources.
  *
@@ -38,9 +40,8 @@ void hs_terminate_connection(struct http_request_s *request);
  * @param max_mem_usage The limit at which err_responder should be called
  *   instead of regular operation.
  */
-void hs_accept_connections(struct http_server_s *server, hs_io_cb_t io_cb,
-                           hs_io_cb_t epoll_timer_cb,
-                           void (*err_responder)(struct http_request_s *),
-                           int64_t max_mem_usage);
+struct http_request_s *hs_accept_connection(struct http_server_s *server,
+                                            hs_io_cb_t io_cb,
+                                            hs_io_cb_t epoll_timer_cb);
 
 #endif

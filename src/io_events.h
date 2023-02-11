@@ -12,9 +12,13 @@ void hs_begin_read(struct http_request_s *request);
 
 #ifdef KQUEUE
 
+struct kevent;
+
 void hs_on_kqueue_server_event(struct kevent *ev);
 
 #else
+
+struct epoll_event;
 
 void hs_on_epoll_server_connection_event(struct epoll_event *ev);
 void hs_on_epoll_server_timer_event(struct epoll_event *ev);
