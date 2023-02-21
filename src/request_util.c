@@ -48,7 +48,7 @@ http_string_t hs_request_header(http_request_t *request, char const *key) {
   return (http_string_t){};
 }
 
-void hs_auto_detect_keep_alive(http_request_t *request) {
+void hs_request_detect_keep_alive_flag(http_request_t *request) {
   http_string_t str = hs_get_token_string(request, HSH_TOK_VERSION);
   if (str.buf == NULL)
     return;
@@ -62,15 +62,14 @@ void hs_auto_detect_keep_alive(http_request_t *request) {
   }
 }
 
-int _hs_assign_iteration_headers(http_request_t *request, http_string_t *key,
-                                 http_string_t *val, int *iter) {
-  struct hsh_token_s token = request->tokens.buf[*iter];
-  if (request->tokens.buf[*iter].type == HSH_TOK_HEADERS_DONE)
+int _hs_get_header_key_val(http_request_t *request, http_string_t *key,
+                           http_string_t *val, int iter) {
+  struct hsh_token_s token = request->tokens.buf[iter];
+  if (request->tokens.buf[iter].type == HSH_TOK_HEADERS_DONE)
     return 0;
   *key = (http_string_t){.buf = &request->buffer.buf[token.index],
                          .len = token.len};
-  (*iter)++;
-  token = request->tokens.buf[*iter];
+  token = request->tokens.buf[iter + 1];
   *val = (http_string_t){.buf = &request->buffer.buf[token.index],
                          .len = token.len};
   return 1;
@@ -82,17 +81,21 @@ int hs_request_iterate_headers(http_request_t *request, http_string_t *key,
     for (; *iter < request->tokens.size; (*iter)++) {
       struct hsh_token_s token = request->tokens.buf[*iter];
       if (token.type == HSH_TOK_HEADER_KEY) {
-        return _hs_assign_iteration_headers(request, key, val, iter);
+        int more = _hs_get_header_key_val(request, key, val, *iter);
+        (*iter)++;
+        return more;
       }
     }
     return 0;
   } else {
     (*iter)++;
-    return _hs_assign_iteration_headers(request, key, val, iter);
+    int more = _hs_get_header_key_val(request, key, val, *iter);
+    (*iter)++;
+    return more;
   }
 }
 
-void hs_request_connection(http_request_t *request, int directive) {
+void hs_request_set_keep_alive_flag(http_request_t *request, int directive) {
   if (directive == HTTP_KEEP_ALIVE) {
     HTTP_FLAG_CLEAR(request->flags, HTTP_AUTOMATIC);
     HTTP_FLAG_SET(request->flags, HTTP_KEEP_ALIVE);

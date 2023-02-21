@@ -53,7 +53,7 @@ http_string_t http_request_header(http_request_t *request, char const *key) {
 }
 
 void http_request_connection(http_request_t *request, int directive) {
-  hs_request_connection(request, directive);
+  hs_request_set_keep_alive_flag(request, directive);
 }
 
 http_string_t http_request_chunk(struct http_request_s *request) {
@@ -64,30 +64,30 @@ http_response_t *http_response_init() { return hs_response_init(); }
 
 void http_response_header(http_response_t *response, char const *key,
                           char const *value) {
-  return hs_response_header(response, key, value);
+  return hs_response_set_header(response, key, value);
 }
 
 void http_response_status(http_response_t *response, int status) {
-  hs_response_status(response, status);
+  hs_response_set_status(response, status);
 }
 
 void http_response_body(http_response_t *response, char const *body,
                         int length) {
-  hs_response_body(response, body, length);
+  hs_response_set_body(response, body, length);
 }
 
 void http_respond(http_request_t *request, http_response_t *response) {
-  hs_respond(request, response, hs_begin_write);
+  hs_request_respond(request, response, hs_request_begin_write);
 }
 
 void http_respond_chunk(http_request_t *request, http_response_t *response,
                         void (*cb)(http_request_t *)) {
-  hs_respond_chunk(request, response, cb, hs_begin_write);
+  hs_request_respond_chunk(request, response, cb, hs_request_begin_write);
 }
 
 void http_respond_chunk_end(http_request_t *request,
                             http_response_t *response) {
-  hs_respond_chunk_end(request, response, hs_begin_write);
+  hs_request_respond_chunk_end(request, response, hs_request_begin_write);
 }
 
 http_string_t http_request_method(http_request_t *request) {
@@ -103,22 +103,24 @@ http_string_t http_request_body(http_request_t *request) {
 }
 
 int http_server_listen(http_server_t *serv) {
-  return hs_listen_loop(serv, NULL);
+  return hs_server_run_event_loop(serv, NULL);
 }
 
 int http_server_listen_addr(http_server_t *serv, const char *ipaddr) {
-  return hs_listen_loop(serv, ipaddr);
+  return hs_server_run_event_loop(serv, ipaddr);
 }
 
-int http_server_poll(http_server_t *serv) { return hs_poll(serv); }
+int http_server_poll(http_server_t *serv) {
+  return hs_server_poll_events(serv);
+}
 
 int http_server_listen_poll(http_server_t *serv) {
-  hs_listen_addr(serv, NULL);
+  hs_server_listen_on_addr(serv, NULL);
   return 0;
 }
 
 int http_server_listen_addr_poll(http_server_t *serv, const char *ipaddr) {
-  hs_listen_addr(serv, ipaddr);
+  hs_server_listen_on_addr(serv, ipaddr);
   return 0;
 }
 
@@ -126,5 +128,5 @@ void http_request_read_chunk(struct http_request_s *request,
                              void (*chunk_cb)(struct http_request_s *)) {
   request->state = HTTP_SESSION_READ;
   request->chunk_cb = chunk_cb;
-  hs_begin_read(request);
+  hs_request_begin_read(request);
 }

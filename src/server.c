@@ -51,8 +51,8 @@ void _hs_server_init_events(http_server_t *serv, hs_evt_cb_t unused) {
   kevent(serv->loop, &ev_set, 1, NULL, 0, NULL);
 }
 
-int hs_listen_loop(http_server_t *serv, const char *ipaddr) {
-  hs_listen_addr(serv, ipaddr);
+int hs_server_run_event_loop(http_server_t *serv, const char *ipaddr) {
+  hs_server_listen_on_addr(serv, ipaddr);
 
   struct kevent ev_list[1];
 
@@ -66,7 +66,7 @@ int hs_listen_loop(http_server_t *serv, const char *ipaddr) {
   return 0;
 }
 
-int hs_poll(http_server_t *serv) {
+int hs_server_poll_events(http_server_t *serv) {
   struct kevent ev;
   struct timespec ts = {0, 0};
   int nev = kevent(serv->loop, NULL, 0, &ev, 1, &ts);
@@ -103,8 +103,8 @@ void _hs_add_server_sock_events(http_server_t *serv) {
   epoll_ctl(serv->loop, EPOLL_CTL_ADD, serv->socket, &ev);
 }
 
-int hs_listen_loop(http_server_t *serv, const char *ipaddr) {
-  hs_listen_addr(serv, ipaddr);
+int hs_server_run_event_loop(http_server_t *serv, const char *ipaddr) {
+  hs_server_listen_on_addr(serv, ipaddr);
   struct epoll_event ev_list[1];
   while (1) {
     int nev = epoll_wait(serv->loop, ev_list, 1, -1);
@@ -116,7 +116,7 @@ int hs_listen_loop(http_server_t *serv, const char *ipaddr) {
   return 0;
 }
 
-int hs_poll(http_server_t *serv) {
+int hs_server_poll_events(http_server_t *serv) {
   struct epoll_event ev;
   int nev = epoll_wait(serv->loop, &ev, 1, 0);
   if (nev <= 0)
@@ -128,7 +128,7 @@ int hs_poll(http_server_t *serv) {
 
 #endif
 
-void hs_listen_addr(http_server_t *serv, const char *ipaddr) {
+void hs_server_listen_on_addr(http_server_t *serv, const char *ipaddr) {
   // Ignore SIGPIPE. We handle these errors at the call site.
   signal(SIGPIPE, SIG_IGN);
   serv->socket = socket(AF_INET, SOCK_STREAM, 0);

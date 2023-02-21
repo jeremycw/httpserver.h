@@ -20,7 +20,7 @@ typedef void (*hs_io_cb_t)(struct epoll_event *ev);
  *
  * @param request The request to close
  */
-void hs_terminate_connection(struct http_request_s *request);
+void hs_request_terminate_connection(struct http_request_s *request);
 
 /* Accepts connections on the server socket in a loop until it would block.
  *
@@ -40,8 +40,8 @@ void hs_terminate_connection(struct http_request_s *request);
  * @param max_mem_usage The limit at which err_responder should be called
  *   instead of regular operation.
  */
-struct http_request_s *hs_accept_connection(struct http_server_s *server,
-                                            hs_io_cb_t io_cb,
-                                            hs_io_cb_t epoll_timer_cb);
+struct http_request_s *hs_server_accept_connection(struct http_server_s *server,
+                                                   hs_io_cb_t io_cb,
+                                                   hs_io_cb_t epoll_timer_cb);
 
 #endif

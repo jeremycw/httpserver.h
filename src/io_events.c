@@ -9,6 +9,7 @@
 #endif
 
 #ifndef HTTPSERVER_IMPL
+#include "buffer_util.h"
 #include "common.h"
 #include "connection.h"
 #include "io_events.h"
@@ -27,31 +28,44 @@ void _hs_read_socket_and_handle_return_code(http_request_t *request) {
   enum hs_read_rc_e rc = hs_read_request_and_exec_user_cb(request, opts);
   switch (rc) {
   case HS_READ_RC_PARSE_ERR:
-    hs_respond_error(request, 400, "Bad Request", hs_begin_write);
+    hs_request_respond_error(request, 400, "Bad Request",
+                             hs_request_begin_write);
     break;
   case HS_READ_RC_SOCKET_ERR:
-    hs_terminate_connection(request);
+    hs_request_terminate_connection(request);
     break;
   case HS_READ_RC_SUCCESS:
     break;
   }
 }
 
-void hs_begin_read(http_request_t *request);
+void hs_request_begin_read(http_request_t *request);
 
 void _hs_write_socket_and_handle_return_code(http_request_t *request) {
   enum hs_write_rc_e rc = hs_write_socket(request);
+
+  request->timeout = rc == HS_WRITE_RC_SUCCESS ? HTTP_KEEP_ALIVE_TIMEOUT
+                                               : HTTP_REQUEST_TIMEOUT;
+
+  if (rc != HS_WRITE_RC_CONTINUE)
+    _hs_buffer_free(&request->buffer, &request->server->memused);
+
   switch (rc) {
   case HS_WRITE_RC_SUCCESS_CLOSE:
   case HS_WRITE_RC_SOCKET_ERR:
     // Error or response complete, connection: close
-    hs_terminate_connection(request);
+    hs_request_terminate_connection(request);
     break;
   case HS_WRITE_RC_SUCCESS:
     // Response complete, keep-alive connection
-    hs_begin_read(request);
+    hs_request_begin_read(request);
     break;
-  default:
+  case HS_WRITE_RC_SUCCESS_CHUNK:
+    // Finished writing chunk, request next
+    request->state = HTTP_SESSION_NOP;
+    request->chunk_cb(request);
+    break;
+  case HS_WRITE_RC_CONTINUE:
     break;
   }
 }
@@ -60,12 +74,13 @@ void _hs_accept_and_begin_request_cycle(http_server_t *server,
                                         hs_io_cb_t on_client_connection_cb,
                                         hs_io_cb_t on_timer_event_cb) {
   http_request_t *request = NULL;
-  while ((request = hs_accept_connection(server, on_client_connection_cb,
-                                         on_timer_event_cb))) {
+  while ((request = hs_server_accept_connection(server, on_client_connection_cb,
+                                                on_timer_event_cb))) {
     if (server->memused > HTTP_MAX_TOTAL_EST_MEM_USAGE) {
-      hs_respond_error(request, 503, "Service Unavailable", hs_begin_write);
+      hs_request_respond_error(request, 503, "Service Unavailable",
+                               hs_request_begin_write);
     } else {
-      hs_begin_read(request);
+      hs_request_begin_read(request);
     }
   }
 }
@@ -77,7 +92,7 @@ void _hs_on_kqueue_client_connection_event(struct kevent *ev) {
   if (ev->filter == EVFILT_TIMER) {
     request->timeout -= 1;
     if (request->timeout == 0)
-      hs_terminate_connection(request);
+      hs_request_terminate_connection(request);
   } else {
     if (request->state == HTTP_SESSION_READ) {
       _hs_read_socket_and_handle_return_code(request);
@@ -116,7 +131,7 @@ void _hs_on_epoll_request_timer_event(struct epoll_event *ev) {
   (void)bytes; // suppress warning
   request->timeout -= 1;
   if (request->timeout == 0)
-    hs_terminate_connection(request);
+    hs_request_terminate_connection(request);
 }
 
 void hs_on_epoll_server_connection_event(struct epoll_event *ev) {
@@ -151,7 +166,7 @@ void _hs_add_write_event(http_request_t *request) {
 #endif
 }
 
-void hs_begin_write(http_request_t *request) {
+void hs_request_begin_write(http_request_t *request) {
   request->state = HTTP_SESSION_WRITE;
   _hs_add_write_event(request);
   _hs_write_socket_and_handle_return_code(request);
@@ -173,7 +188,7 @@ void _hs_add_read_event(http_request_t *request) {
 #endif
 }
 
-void hs_begin_read(http_request_t *request) {
+void hs_request_begin_read(http_request_t *request) {
   request->state = HTTP_SESSION_READ;
   _hs_add_read_event(request);
   _hs_read_socket_and_handle_return_code(request);

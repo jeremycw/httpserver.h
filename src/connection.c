@@ -67,7 +67,7 @@ void _hs_add_timer_event(http_request_t *request, hs_io_cb_t timer_cb) {
 
 #endif
 
-void hs_terminate_connection(http_request_t *request) {
+void hs_request_terminate_connection(http_request_t *request) {
   _hs_delete_events(request);
   close(request->socket);
   _hs_buffer_free(&request->buffer, &request->server->memused);
@@ -84,35 +84,36 @@ void _hs_token_array_init(struct hs_token_array_s *array, int capacity) {
   array->capacity = capacity;
 }
 
-void _hs_init_connection(http_request_t *connection) {
-  connection->flags = HTTP_AUTOMATIC;
-  connection->parser = (struct hsh_parser_s){};
-  connection->buffer = (struct hsh_buffer_s){};
-  if (connection->tokens.buf) {
-    free(connection->tokens.buf);
-    connection->tokens.buf = NULL;
-  }
-  _hs_token_array_init(&connection->tokens, 32);
+http_request_t *_hs_request_init(int sock, http_server_t *server,
+                                 hs_io_cb_t io_cb) {
+  http_request_t *request = (http_request_t *)calloc(1, sizeof(http_request_t));
+  assert(request != NULL);
+  request->socket = sock;
+  request->server = server;
+  request->handler = io_cb;
+  request->timeout = HTTP_REQUEST_TIMEOUT;
+  request->flags = HTTP_AUTOMATIC;
+  request->parser = (struct hsh_parser_s){};
+  request->buffer = (struct hsh_buffer_s){};
+  request->tokens.buf = NULL;
+  _hs_token_array_init(&request->tokens, 32);
+  return request;
 }
 
-http_request_t *hs_accept_connection(http_server_t *server, hs_io_cb_t io_cb,
-                                     hs_io_cb_t epoll_timer_cb) {
-  http_request_t *connection = NULL;
+http_request_t *hs_server_accept_connection(http_server_t *server,
+                                            hs_io_cb_t io_cb,
+                                            hs_io_cb_t epoll_timer_cb) {
+  http_request_t *request = NULL;
   int sock = 0;
 
   sock = accept(server->socket, (struct sockaddr *)&server->addr, &server->len);
 
   if (sock > 0) {
-    connection = (http_request_t *)calloc(1, sizeof(http_request_t));
-    assert(connection != NULL);
-    connection->socket = sock;
-    connection->server = server;
-    connection->timeout = HTTP_REQUEST_TIMEOUT;
-    connection->handler = io_cb;
     int flags = fcntl(sock, F_GETFL, 0);
     fcntl(sock, F_SETFL, flags | O_NONBLOCK);
-    _hs_add_timer_event(connection, epoll_timer_cb);
-    _hs_init_connection(connection);
+
+    request = _hs_request_init(sock, server, io_cb);
+    _hs_add_timer_event(request, epoll_timer_cb);
   }
-  return connection;
+  return request;
 }
