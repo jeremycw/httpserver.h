@@ -7,8 +7,8 @@
 
 struct http_request_s;
 
-void hs_begin_write(struct http_request_s *request);
-void hs_begin_read(struct http_request_s *request);
+void hs_request_begin_write(struct http_request_s *request);
+void hs_request_begin_read(struct http_request_s *request);
 
 #ifdef KQUEUE
 
