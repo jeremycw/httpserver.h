@@ -14,6 +14,3 @@ if(EPOLL)
   target_compile_definitions(functional-test-server PRIVATE "EPOLL")
   target_compile_definitions(functional-test-server-cpp PRIVATE "EPOLL")
 endif()
-
-target_link_libraries(functional-test-server PUBLIC httpsrv)
-target_link_libraries(functional-test-server-cpp PUBLIC httpsrv)
