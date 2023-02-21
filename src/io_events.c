@@ -28,7 +28,8 @@ void _hs_read_socket_and_handle_return_code(http_request_t *request) {
   enum hs_read_rc_e rc = hs_read_request_and_exec_user_cb(request, opts);
   switch (rc) {
   case HS_READ_RC_PARSE_ERR:
-    hs_request_respond_error(request, 400, "Bad Request", hs_request_begin_write);
+    hs_request_respond_error(request, 400, "Bad Request",
+                             hs_request_begin_write);
     break;
   case HS_READ_RC_SOCKET_ERR:
     hs_request_terminate_connection(request);
@@ -43,6 +44,12 @@ void hs_request_begin_read(http_request_t *request);
 void _hs_write_socket_and_handle_return_code(http_request_t *request) {
   enum hs_write_rc_e rc = hs_write_socket(request);
 
+  request->timeout = rc == HS_WRITE_RC_SUCCESS ? HTTP_KEEP_ALIVE_TIMEOUT
+                                               : HTTP_REQUEST_TIMEOUT;
+
+  if (rc != HS_WRITE_RC_CONTINUE)
+    _hs_buffer_free(&request->buffer, &request->server->memused);
+
   switch (rc) {
   case HS_WRITE_RC_SUCCESS_CLOSE:
   case HS_WRITE_RC_SOCKET_ERR:
@@ -53,17 +60,14 @@ void _hs_write_socket_and_handle_return_code(http_request_t *request) {
     // Response complete, keep-alive connection
     hs_request_begin_read(request);
     break;
-  // case HS_WRITE_RC_SUCCESS_CHUNK:
-  //   // Finished writing chunk, request next
-  //   request->state = HTTP_SESSION_NOP;
-  //   request->chunk_cb(request);
-  default:
+  case HS_WRITE_RC_SUCCESS_CHUNK:
+    // Finished writing chunk, request next
+    request->state = HTTP_SESSION_NOP;
+    request->chunk_cb(request);
+    break;
+  case HS_WRITE_RC_CONTINUE:
     break;
   }
-
-  // if (rc != HS_WRITE_RC_CONTINUE) {
-  //   _hs_buffer_free(&request->buffer, &request->server->memused);
-  // }
 }
 
 void _hs_accept_and_begin_request_cycle(http_server_t *server,
@@ -127,7 +131,7 @@ void _hs_on_epoll_request_timer_event(struct epoll_event *ev) {
   (void)bytes; // suppress warning
   request->timeout -= 1;
   if (request->timeout == 0)
-    hs_terminate_connection(request);
+    hs_request_terminate_connection(request);
 }
 
 void hs_on_epoll_server_connection_event(struct epoll_event *ev) {

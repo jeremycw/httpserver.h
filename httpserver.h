@@ -663,10 +663,10 @@ typedef struct http_string_s http_string_t;
 http_string_t hs_get_token_string(http_request_t *request,
                                   enum hsh_token_e token_type);
 http_string_t hs_request_header(http_request_t *request, char const *key);
-void hs_auto_detect_keep_alive(http_request_t *request);
+void hs_request_detect_keep_alive_flag(http_request_t *request);
 int hs_request_iterate_headers(http_request_t *request, http_string_t *key,
                                http_string_t *val, int *iter);
-void hs_request_connection(http_request_t *request, int directive);
+void hs_request_set_keep_alive_flag(http_request_t *request, int directive);
 http_string_t hs_request_chunk(struct http_request_s *request);
 
 #endif
@@ -764,18 +764,21 @@ typedef struct http_response_s {
 } http_response_t;
 
 http_response_t *hs_response_init();
-void hs_response_header(http_response_t *response, char const *key,
-                        char const *value);
-void hs_response_status(http_response_t *response, int status);
-void hs_response_body(http_response_t *response, char const *body, int length);
-void hs_respond(struct http_request_s *request, http_response_t *response,
-                hs_req_fn_t http_write);
-void hs_respond_chunk(struct http_request_s *request, http_response_t *response,
-                      hs_req_fn_t cb, hs_req_fn_t http_write);
-void hs_respond_chunk_end(struct http_request_s *request,
-                          http_response_t *response, hs_req_fn_t http_write);
-void hs_respond_error(struct http_request_s *request, int code,
-                      char const *message, hs_req_fn_t http_write);
+void hs_response_set_header(http_response_t *response, char const *key,
+                            char const *value);
+void hs_response_set_status(http_response_t *response, int status);
+void hs_response_set_body(http_response_t *response, char const *body,
+                          int length);
+void hs_request_respond(struct http_request_s *request,
+                        http_response_t *response, hs_req_fn_t http_write);
+void hs_request_respond_chunk(struct http_request_s *request,
+                              http_response_t *response, hs_req_fn_t cb,
+                              hs_req_fn_t http_write);
+void hs_request_respond_chunk_end(struct http_request_s *request,
+                                  http_response_t *response,
+                                  hs_req_fn_t http_write);
+void hs_request_respond_error(struct http_request_s *request, int code,
+                              char const *message, hs_req_fn_t http_write);
 
 #endif
 
@@ -800,14 +803,14 @@ typedef void (*hs_evt_cb_t)(struct epoll_event *ev);
 struct http_request_s;
 struct http_server_s;
 
-void hs_listen_addr(struct http_server_s *serv, const char *ipaddr);
-int hs_listen_loop(struct http_server_s *serv, const char *ipaddr);
+void hs_server_listen_on_addr(struct http_server_s *serv, const char *ipaddr);
+int hs_server_run_event_loop(struct http_server_s *serv, const char *ipaddr);
 void hs_generate_date_time(char *datetime);
 struct http_server_s *hs_server_init(int port,
                                      void (*handler)(struct http_request_s *),
                                      hs_evt_cb_t accept_cb,
                                      hs_evt_cb_t timer_cb);
-int hs_poll(struct http_server_s *serv);
+int hs_server_poll_events(struct http_server_s *serv);
 
 #endif
 
@@ -860,7 +863,7 @@ typedef void (*hs_io_cb_t)(struct epoll_event *ev);
  *
  * @param request The request to close
  */
-void hs_terminate_connection(struct http_request_s *request);
+void hs_request_terminate_connection(struct http_request_s *request);
 
 /* Accepts connections on the server socket in a loop until it would block.
  *
@@ -880,9 +883,9 @@ void hs_terminate_connection(struct http_request_s *request);
  * @param max_mem_usage The limit at which err_responder should be called
  *   instead of regular operation.
  */
-struct http_request_s *hs_accept_connection(struct http_server_s *server,
-                                            hs_io_cb_t io_cb,
-                                            hs_io_cb_t epoll_timer_cb);
+struct http_request_s *hs_server_accept_connection(struct http_server_s *server,
+                                                   hs_io_cb_t io_cb,
+                                                   hs_io_cb_t epoll_timer_cb);
 
 #endif
 
@@ -896,8 +899,8 @@ struct http_request_s *hs_accept_connection(struct http_server_s *server,
 
 struct http_request_s;
 
-void hs_begin_write(struct http_request_s *request);
-void hs_begin_read(struct http_request_s *request);
+void hs_request_begin_write(struct http_request_s *request);
+void hs_request_begin_read(struct http_request_s *request);
 
 #ifdef KQUEUE
 
@@ -975,7 +978,7 @@ http_string_t http_request_header(http_request_t *request, char const *key) {
 }
 
 void http_request_connection(http_request_t *request, int directive) {
-  hs_request_connection(request, directive);
+  hs_request_set_keep_alive_flag(request, directive);
 }
 
 http_string_t http_request_chunk(struct http_request_s *request) {
@@ -986,30 +989,30 @@ http_response_t *http_response_init() { return hs_response_init(); }
 
 void http_response_header(http_response_t *response, char const *key,
                           char const *value) {
-  return hs_response_header(response, key, value);
+  return hs_response_set_header(response, key, value);
 }
 
 void http_response_status(http_response_t *response, int status) {
-  hs_response_status(response, status);
+  hs_response_set_status(response, status);
 }
 
 void http_response_body(http_response_t *response, char const *body,
                         int length) {
-  hs_response_body(response, body, length);
+  hs_response_set_body(response, body, length);
 }
 
 void http_respond(http_request_t *request, http_response_t *response) {
-  hs_respond(request, response, hs_begin_write);
+  hs_request_respond(request, response, hs_request_begin_write);
 }
 
 void http_respond_chunk(http_request_t *request, http_response_t *response,
                         void (*cb)(http_request_t *)) {
-  hs_respond_chunk(request, response, cb, hs_begin_write);
+  hs_request_respond_chunk(request, response, cb, hs_request_begin_write);
 }
 
 void http_respond_chunk_end(http_request_t *request,
                             http_response_t *response) {
-  hs_respond_chunk_end(request, response, hs_begin_write);
+  hs_request_respond_chunk_end(request, response, hs_request_begin_write);
 }
 
 http_string_t http_request_method(http_request_t *request) {
@@ -1025,22 +1028,24 @@ http_string_t http_request_body(http_request_t *request) {
 }
 
 int http_server_listen(http_server_t *serv) {
-  return hs_listen_loop(serv, NULL);
+  return hs_server_run_event_loop(serv, NULL);
 }
 
 int http_server_listen_addr(http_server_t *serv, const char *ipaddr) {
-  return hs_listen_loop(serv, ipaddr);
+  return hs_server_run_event_loop(serv, ipaddr);
 }
 
-int http_server_poll(http_server_t *serv) { return hs_poll(serv); }
+int http_server_poll(http_server_t *serv) {
+  return hs_server_poll_events(serv);
+}
 
 int http_server_listen_poll(http_server_t *serv) {
-  hs_listen_addr(serv, NULL);
+  hs_server_listen_on_addr(serv, NULL);
   return 0;
 }
 
 int http_server_listen_addr_poll(http_server_t *serv, const char *ipaddr) {
-  hs_listen_addr(serv, ipaddr);
+  hs_server_listen_on_addr(serv, ipaddr);
   return 0;
 }
 
@@ -1048,7 +1053,7 @@ void http_request_read_chunk(struct http_request_s *request,
                              void (*chunk_cb)(struct http_request_s *)) {
   request->state = HTTP_SESSION_READ;
   request->chunk_cb = chunk_cb;
-  hs_begin_read(request);
+  hs_request_begin_read(request);
 }
 
 #line 1 "request_util.c"
@@ -1102,7 +1107,7 @@ http_string_t hs_request_header(http_request_t *request, char const *key) {
   return (http_string_t){};
 }
 
-void hs_auto_detect_keep_alive(http_request_t *request) {
+void hs_request_detect_keep_alive_flag(http_request_t *request) {
   http_string_t str = hs_get_token_string(request, HSH_TOK_VERSION);
   if (str.buf == NULL)
     return;
@@ -1116,15 +1121,14 @@ void hs_auto_detect_keep_alive(http_request_t *request) {
   }
 }
 
-int _hs_assign_iteration_headers(http_request_t *request, http_string_t *key,
-                                 http_string_t *val, int *iter) {
-  struct hsh_token_s token = request->tokens.buf[*iter];
-  if (request->tokens.buf[*iter].type == HSH_TOK_HEADERS_DONE)
+int _hs_get_header_key_val(http_request_t *request, http_string_t *key,
+                           http_string_t *val, int iter) {
+  struct hsh_token_s token = request->tokens.buf[iter];
+  if (request->tokens.buf[iter].type == HSH_TOK_HEADERS_DONE)
     return 0;
   *key = (http_string_t){.buf = &request->buffer.buf[token.index],
                          .len = token.len};
-  (*iter)++;
-  token = request->tokens.buf[*iter];
+  token = request->tokens.buf[iter + 1];
   *val = (http_string_t){.buf = &request->buffer.buf[token.index],
                          .len = token.len};
   return 1;
@@ -1136,17 +1140,21 @@ int hs_request_iterate_headers(http_request_t *request, http_string_t *key,
     for (; *iter < request->tokens.size; (*iter)++) {
       struct hsh_token_s token = request->tokens.buf[*iter];
       if (token.type == HSH_TOK_HEADER_KEY) {
-        return _hs_assign_iteration_headers(request, key, val, iter);
+        int more = _hs_get_header_key_val(request, key, val, *iter);
+        (*iter)++;
+        return more;
       }
     }
     return 0;
   } else {
     (*iter)++;
-    return _hs_assign_iteration_headers(request, key, val, iter);
+    int more = _hs_get_header_key_val(request, key, val, *iter);
+    (*iter)++;
+    return more;
   }
 }
 
-void hs_request_connection(http_request_t *request, int directive) {
+void hs_request_set_keep_alive_flag(http_request_t *request, int directive) {
   if (directive == HTTP_KEEP_ALIVE) {
     HTTP_FLAG_CLEAR(request->flags, HTTP_AUTOMATIC);
     HTTP_FLAG_SET(request->flags, HTTP_KEEP_ALIVE);
@@ -2132,36 +2140,36 @@ void _grwprintf(grwprintf_t *ctx, char const *fmt, ...) {
   va_end(args);
 }
 
-void _http_buffer_headers(http_request_t *request, http_response_t *response,
-                          grwprintf_t *printctx) {
+void _http_serialize_headers_list(http_response_t *response,
+                                  grwprintf_t *printctx) {
   http_header_t *header = response->headers;
   while (header) {
     _grwprintf(printctx, "%s: %s\r\n", header->key, header->value);
     header = header->next;
   }
-  if (!HTTP_FLAG_CHECK(request->flags, HTTP_CHUNKED_RESPONSE)) {
-    _grwprintf(printctx, "Content-Length: %d\r\n", response->content_length);
-  }
   _grwprintf(printctx, "\r\n");
 }
 
-void _http_respond_headers(http_request_t *request, http_response_t *response,
-                           grwprintf_t *printctx) {
+void _http_serialize_headers(http_request_t *request, http_response_t *response,
+                             grwprintf_t *printctx) {
   if (HTTP_FLAG_CHECK(request->flags, HTTP_AUTOMATIC)) {
-    hs_auto_detect_keep_alive(request);
+    hs_request_detect_keep_alive_flag(request);
   }
   if (HTTP_FLAG_CHECK(request->flags, HTTP_KEEP_ALIVE)) {
-    hs_response_header(response, "Connection", "keep-alive");
+    hs_response_set_header(response, "Connection", "keep-alive");
   } else {
-    hs_response_header(response, "Connection", "close");
+    hs_response_set_header(response, "Connection", "close");
   }
   _grwprintf(printctx, "HTTP/1.1 %d %s\r\nDate: %s\r\n", response->status,
              hs_status_text[response->status], request->server->date);
-  _http_buffer_headers(request, response, printctx);
+  if (!HTTP_FLAG_CHECK(request->flags, HTTP_CHUNKED_RESPONSE)) {
+    _grwprintf(printctx, "Content-Length: %d\r\n", response->content_length);
+  }
+  _http_serialize_headers_list(response, printctx);
 }
 
-void _http_end_response(http_request_t *request, http_response_t *response,
-                        grwprintf_t *printctx, hs_req_fn_t http_write) {
+void _http_perform_response(http_request_t *request, http_response_t *response,
+                            grwprintf_t *printctx, hs_req_fn_t http_write) {
   http_header_t *header = response->headers;
   while (header) {
     http_header_t *tmp = header;
@@ -2179,8 +2187,8 @@ void _http_end_response(http_request_t *request, http_response_t *response,
 }
 
 // See api.h http_response_header
-void hs_response_header(http_response_t *response, char const *key,
-                        char const *value) {
+void hs_response_set_header(http_response_t *response, char const *key,
+                            char const *value) {
   http_header_t *header = (http_header_t *)malloc(sizeof(http_header_t));
   assert(header != NULL);
   header->key = key;
@@ -2192,55 +2200,58 @@ void hs_response_header(http_response_t *response, char const *key,
 
 // Serializes the response into the request buffer and calls http_write.
 // See api.h http_respond for more details
-void hs_respond(http_request_t *request, http_response_t *response,
-                hs_req_fn_t http_write) {
+void hs_request_respond(http_request_t *request, http_response_t *response,
+                        hs_req_fn_t http_write) {
   grwprintf_t printctx;
   _grwprintf_init(&printctx, HTTP_RESPONSE_BUF_SIZE, &request->server->memused);
-  _http_respond_headers(request, response, &printctx);
+  _http_serialize_headers(request, response, &printctx);
   if (response->body) {
     _grwmemcpy(&printctx, response->body, response->content_length);
   }
-  _http_end_response(request, response, &printctx, http_write);
+  _http_perform_response(request, response, &printctx, http_write);
 }
 
 // Serializes a chunk into the request buffer and calls http_write.
 // See api.h http_respond_chunk for more details.
-void hs_respond_chunk(http_request_t *request, http_response_t *response,
-                      hs_req_fn_t cb, hs_req_fn_t http_write) {
+void hs_request_respond_chunk(http_request_t *request,
+                              http_response_t *response, hs_req_fn_t cb,
+                              hs_req_fn_t http_write) {
   grwprintf_t printctx;
   _grwprintf_init(&printctx, HTTP_RESPONSE_BUF_SIZE, &request->server->memused);
   if (!HTTP_FLAG_CHECK(request->flags, HTTP_CHUNKED_RESPONSE)) {
     HTTP_FLAG_SET(request->flags, HTTP_CHUNKED_RESPONSE);
-    hs_response_header(response, "Transfer-Encoding", "chunked");
-    _http_respond_headers(request, response, &printctx);
+    hs_response_set_header(response, "Transfer-Encoding", "chunked");
+    _http_serialize_headers(request, response, &printctx);
   }
   request->chunk_cb = cb;
   _grwprintf(&printctx, "%X\r\n", response->content_length);
   _grwmemcpy(&printctx, response->body, response->content_length);
   _grwprintf(&printctx, "\r\n");
-  _http_end_response(request, response, &printctx, http_write);
+  _http_perform_response(request, response, &printctx, http_write);
 }
 
 // Serializes the zero sized final chunk into the request buffer and calls
 // http_write. See api.h http_respond_chunk_end for more details.
-void hs_respond_chunk_end(http_request_t *request, http_response_t *response,
-                          hs_req_fn_t http_write) {
+void hs_request_respond_chunk_end(http_request_t *request,
+                                  http_response_t *response,
+                                  hs_req_fn_t http_write) {
   grwprintf_t printctx;
   _grwprintf_init(&printctx, HTTP_RESPONSE_BUF_SIZE, &request->server->memused);
   _grwprintf(&printctx, "0\r\n");
-  _http_buffer_headers(request, response, &printctx);
+  _http_serialize_headers_list(response, &printctx);
   _grwprintf(&printctx, "\r\n");
   HTTP_FLAG_CLEAR(request->flags, HTTP_CHUNKED_RESPONSE);
-  _http_end_response(request, response, &printctx, http_write);
+  _http_perform_response(request, response, &printctx, http_write);
 }
 
 // See api.h http_response_status
-void hs_response_status(http_response_t *response, int status) {
+void hs_response_set_status(http_response_t *response, int status) {
   response->status = status > 599 || status < 100 ? 500 : status;
 }
 
 // See api.h http_response_body
-void hs_response_body(http_response_t *response, char const *body, int length) {
+void hs_response_set_body(http_response_t *response, char const *body,
+                          int length) {
   response->body = body;
   response->content_length = length;
 }
@@ -2255,13 +2266,13 @@ http_response_t *hs_response_init() {
 }
 
 // Simple less flexible interface for responses, used for errors.
-void hs_respond_error(http_request_t *request, int code, char const *message,
-                      hs_req_fn_t http_write) {
+void hs_request_respond_error(http_request_t *request, int code,
+                              char const *message, hs_req_fn_t http_write) {
   struct http_response_s *response = hs_response_init();
-  hs_response_status(response, code);
-  hs_response_header(response, "Content-Type", "text/plain");
-  hs_response_body(response, message, strlen(message));
-  hs_respond(request, response, http_write);
+  hs_response_set_status(response, code);
+  hs_response_set_header(response, "Content-Type", "text/plain");
+  hs_response_set_body(response, message, strlen(message));
+  hs_request_respond(request, response, http_write);
   http_write(request);
 }
 
@@ -2319,8 +2330,8 @@ void _hs_server_init_events(http_server_t *serv, hs_evt_cb_t unused) {
   kevent(serv->loop, &ev_set, 1, NULL, 0, NULL);
 }
 
-int hs_listen_loop(http_server_t *serv, const char *ipaddr) {
-  hs_listen_addr(serv, ipaddr);
+int hs_server_run_event_loop(http_server_t *serv, const char *ipaddr) {
+  hs_server_listen_on_addr(serv, ipaddr);
 
   struct kevent ev_list[1];
 
@@ -2334,7 +2345,7 @@ int hs_listen_loop(http_server_t *serv, const char *ipaddr) {
   return 0;
 }
 
-int hs_poll(http_server_t *serv) {
+int hs_server_poll_events(http_server_t *serv) {
   struct kevent ev;
   struct timespec ts = {0, 0};
   int nev = kevent(serv->loop, NULL, 0, &ev, 1, &ts);
@@ -2371,8 +2382,8 @@ void _hs_add_server_sock_events(http_server_t *serv) {
   epoll_ctl(serv->loop, EPOLL_CTL_ADD, serv->socket, &ev);
 }
 
-int hs_listen_loop(http_server_t *serv, const char *ipaddr) {
-  hs_listen_addr(serv, ipaddr);
+int hs_server_run_event_loop(http_server_t *serv, const char *ipaddr) {
+  hs_server_listen_on_addr(serv, ipaddr);
   struct epoll_event ev_list[1];
   while (1) {
     int nev = epoll_wait(serv->loop, ev_list, 1, -1);
@@ -2384,7 +2395,7 @@ int hs_listen_loop(http_server_t *serv, const char *ipaddr) {
   return 0;
 }
 
-int hs_poll(http_server_t *serv) {
+int hs_server_poll_events(http_server_t *serv) {
   struct epoll_event ev;
   int nev = epoll_wait(serv->loop, &ev, 1, 0);
   if (nev <= 0)
@@ -2396,7 +2407,7 @@ int hs_poll(http_server_t *serv) {
 
 #endif
 
-void hs_listen_addr(http_server_t *serv, const char *ipaddr) {
+void hs_server_listen_on_addr(http_server_t *serv, const char *ipaddr) {
   // Ignore SIGPIPE. We handle these errors at the call site.
   signal(SIGPIPE, SIG_IGN);
   serv->socket = socket(AF_INET, SOCK_STREAM, 0);
@@ -2434,11 +2445,9 @@ http_server_t *hs_server_init(int port, void (*handler)(http_request_t *),
 
 #line 1 "write_socket.c"
 #include <errno.h>
-#include <stdint.h>
 #include <unistd.h>
 
 #ifndef HTTPSERVER_IMPL
-#include "buffer_util.h"
 #include "common.h"
 #include "write_socket.h"
 #endif
@@ -2448,14 +2457,6 @@ http_server_t *hs_server_init(int port, void (*handler)(http_request_t *),
 ssize_t hs_test_write(int fd, char const *data, size_t size);
 #endif
 
-void _hs_write_buffer_into_socket(struct hsh_buffer_s *buffer,
-                                  int64_t *bytes_written, int request_socket) {
-  int bytes = write(request_socket, buffer->buf + *bytes_written,
-                    buffer->length - *bytes_written);
-  if (bytes > 0)
-    *bytes_written += bytes;
-}
-
 // Writes response bytes from the buffer out to the socket.
 //
 // Runs when we get a socket ready to write event or when initiating an HTTP
@@ -2463,10 +2464,13 @@ void _hs_write_buffer_into_socket(struct hsh_buffer_s *buffer,
 // chunked the chunk_cb callback will be invoked signalling to the user code
 // that another chunk is ready to be written.
 enum hs_write_rc_e hs_write_socket(http_request_t *request) {
-  enum hs_write_rc_e rc = HS_WRITE_RC_SUCCESS;
+  int bytes =
+      write(request->socket, request->buffer.buf + request->bytes_written,
+            request->buffer.length - request->bytes_written);
+  if (bytes > 0)
+    request->bytes_written += bytes;
 
-  _hs_write_buffer_into_socket(&request->buffer, &request->bytes_written,
-                               request->socket);
+  enum hs_write_rc_e rc = HS_WRITE_RC_SUCCESS;
 
   if (errno == EPIPE) {
     rc = HS_WRITE_RC_SOCKET_ERR;
@@ -2474,23 +2478,14 @@ enum hs_write_rc_e hs_write_socket(http_request_t *request) {
     if (request->bytes_written != request->buffer.length) {
       // All bytes of the body were not written and we need to wait until the
       // socket is writable again to complete the write
-
-      request->state = HTTP_SESSION_WRITE;
-      request->timeout = HTTP_REQUEST_TIMEOUT;
       rc = HS_WRITE_RC_CONTINUE;
     } else if (HTTP_FLAG_CHECK(request->flags, HTTP_CHUNKED_RESPONSE)) {
       // All bytes of the chunk were written and we need to get the next chunk
       // from the application.
-      request->state = HTTP_SESSION_NOP;
-      request->timeout = HTTP_REQUEST_TIMEOUT;
-      _hs_buffer_free(&request->buffer, &request->server->memused);
-
-      request->chunk_cb(request);
       rc = HS_WRITE_RC_SUCCESS_CHUNK;
     } else {
       if (HTTP_FLAG_CHECK(request->flags, HTTP_KEEP_ALIVE)) {
-        request->timeout = HTTP_KEEP_ALIVE_TIMEOUT;
-        _hs_buffer_free(&request->buffer, &request->server->memused);
+        rc = HS_WRITE_RC_SUCCESS;
       } else {
         rc = HS_WRITE_RC_SUCCESS_CLOSE;
       }
@@ -2570,7 +2565,7 @@ void _hs_add_timer_event(http_request_t *request, hs_io_cb_t timer_cb) {
 
 #endif
 
-void hs_terminate_connection(http_request_t *request) {
+void hs_request_terminate_connection(http_request_t *request) {
   _hs_delete_events(request);
   close(request->socket);
   _hs_buffer_free(&request->buffer, &request->server->memused);
@@ -2587,37 +2582,38 @@ void _hs_token_array_init(struct hs_token_array_s *array, int capacity) {
   array->capacity = capacity;
 }
 
-void _hs_init_connection(http_request_t *connection) {
-  connection->flags = HTTP_AUTOMATIC;
-  connection->parser = (struct hsh_parser_s){};
-  connection->buffer = (struct hsh_buffer_s){};
-  if (connection->tokens.buf) {
-    free(connection->tokens.buf);
-    connection->tokens.buf = NULL;
-  }
-  _hs_token_array_init(&connection->tokens, 32);
+http_request_t *_hs_request_init(int sock, http_server_t *server,
+                                 hs_io_cb_t io_cb) {
+  http_request_t *request = (http_request_t *)calloc(1, sizeof(http_request_t));
+  assert(request != NULL);
+  request->socket = sock;
+  request->server = server;
+  request->handler = io_cb;
+  request->timeout = HTTP_REQUEST_TIMEOUT;
+  request->flags = HTTP_AUTOMATIC;
+  request->parser = (struct hsh_parser_s){};
+  request->buffer = (struct hsh_buffer_s){};
+  request->tokens.buf = NULL;
+  _hs_token_array_init(&request->tokens, 32);
+  return request;
 }
 
-http_request_t *hs_accept_connection(http_server_t *server, hs_io_cb_t io_cb,
-                                     hs_io_cb_t epoll_timer_cb) {
-  http_request_t *connection = NULL;
+http_request_t *hs_server_accept_connection(http_server_t *server,
+                                            hs_io_cb_t io_cb,
+                                            hs_io_cb_t epoll_timer_cb) {
+  http_request_t *request = NULL;
   int sock = 0;
 
   sock = accept(server->socket, (struct sockaddr *)&server->addr, &server->len);
 
   if (sock > 0) {
-    connection = (http_request_t *)calloc(1, sizeof(http_request_t));
-    assert(connection != NULL);
-    connection->socket = sock;
-    connection->server = server;
-    connection->timeout = HTTP_REQUEST_TIMEOUT;
-    connection->handler = io_cb;
     int flags = fcntl(sock, F_GETFL, 0);
     fcntl(sock, F_SETFL, flags | O_NONBLOCK);
-    _hs_add_timer_event(connection, epoll_timer_cb);
-    _hs_init_connection(connection);
+
+    request = _hs_request_init(sock, server, io_cb);
+    _hs_add_timer_event(request, epoll_timer_cb);
   }
-  return connection;
+  return request;
 }
 
 #line 1 "io_events.c"
@@ -2632,6 +2628,7 @@ http_request_t *hs_accept_connection(http_server_t *server, hs_io_cb_t io_cb,
 #endif
 
 #ifndef HTTPSERVER_IMPL
+#include "buffer_util.h"
 #include "common.h"
 #include "connection.h"
 #include "io_events.h"
@@ -2650,31 +2647,44 @@ void _hs_read_socket_and_handle_return_code(http_request_t *request) {
   enum hs_read_rc_e rc = hs_read_request_and_exec_user_cb(request, opts);
   switch (rc) {
   case HS_READ_RC_PARSE_ERR:
-    hs_respond_error(request, 400, "Bad Request", hs_begin_write);
+    hs_request_respond_error(request, 400, "Bad Request",
+                             hs_request_begin_write);
     break;
   case HS_READ_RC_SOCKET_ERR:
-    hs_terminate_connection(request);
+    hs_request_terminate_connection(request);
     break;
   case HS_READ_RC_SUCCESS:
     break;
   }
 }
 
-void hs_begin_read(http_request_t *request);
+void hs_request_begin_read(http_request_t *request);
 
 void _hs_write_socket_and_handle_return_code(http_request_t *request) {
   enum hs_write_rc_e rc = hs_write_socket(request);
+
+  request->timeout = rc == HS_WRITE_RC_SUCCESS ? HTTP_KEEP_ALIVE_TIMEOUT
+                                               : HTTP_REQUEST_TIMEOUT;
+
+  if (rc != HS_WRITE_RC_CONTINUE)
+    _hs_buffer_free(&request->buffer, &request->server->memused);
+
   switch (rc) {
   case HS_WRITE_RC_SUCCESS_CLOSE:
   case HS_WRITE_RC_SOCKET_ERR:
     // Error or response complete, connection: close
-    hs_terminate_connection(request);
+    hs_request_terminate_connection(request);
     break;
   case HS_WRITE_RC_SUCCESS:
     // Response complete, keep-alive connection
-    hs_begin_read(request);
+    hs_request_begin_read(request);
     break;
-  default:
+  case HS_WRITE_RC_SUCCESS_CHUNK:
+    // Finished writing chunk, request next
+    request->state = HTTP_SESSION_NOP;
+    request->chunk_cb(request);
+    break;
+  case HS_WRITE_RC_CONTINUE:
     break;
   }
 }
@@ -2683,12 +2693,13 @@ void _hs_accept_and_begin_request_cycle(http_server_t *server,
                                         hs_io_cb_t on_client_connection_cb,
                                         hs_io_cb_t on_timer_event_cb) {
   http_request_t *request = NULL;
-  while ((request = hs_accept_connection(server, on_client_connection_cb,
-                                         on_timer_event_cb))) {
+  while ((request = hs_server_accept_connection(server, on_client_connection_cb,
+                                                on_timer_event_cb))) {
     if (server->memused > HTTP_MAX_TOTAL_EST_MEM_USAGE) {
-      hs_respond_error(request, 503, "Service Unavailable", hs_begin_write);
+      hs_request_respond_error(request, 503, "Service Unavailable",
+                               hs_request_begin_write);
     } else {
-      hs_begin_read(request);
+      hs_request_begin_read(request);
     }
   }
 }
@@ -2700,7 +2711,7 @@ void _hs_on_kqueue_client_connection_event(struct kevent *ev) {
   if (ev->filter == EVFILT_TIMER) {
     request->timeout -= 1;
     if (request->timeout == 0)
-      hs_terminate_connection(request);
+      hs_request_terminate_connection(request);
   } else {
     if (request->state == HTTP_SESSION_READ) {
       _hs_read_socket_and_handle_return_code(request);
@@ -2739,7 +2750,7 @@ void _hs_on_epoll_request_timer_event(struct epoll_event *ev) {
   (void)bytes; // suppress warning
   request->timeout -= 1;
   if (request->timeout == 0)
-    hs_terminate_connection(request);
+    hs_request_terminate_connection(request);
 }
 
 void hs_on_epoll_server_connection_event(struct epoll_event *ev) {
@@ -2774,7 +2785,7 @@ void _hs_add_write_event(http_request_t *request) {
 #endif
 }
 
-void hs_begin_write(http_request_t *request) {
+void hs_request_begin_write(http_request_t *request) {
   request->state = HTTP_SESSION_WRITE;
   _hs_add_write_event(request);
   _hs_write_socket_and_handle_return_code(request);
@@ -2796,7 +2807,7 @@ void _hs_add_read_event(http_request_t *request) {
 #endif
 }
 
-void hs_begin_read(http_request_t *request) {
+void hs_request_begin_read(http_request_t *request) {
   request->state = HTTP_SESSION_READ;
   _hs_add_read_event(request);
   _hs_read_socket_and_handle_return_code(request);
