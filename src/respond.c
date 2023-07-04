@@ -100,7 +100,9 @@ void _grwmemcpy(grwprintf_t *ctx, char const *src, int size) {
 
 void _grwprintf(grwprintf_t *ctx, char const *fmt, ...) {
   va_list args;
+  va_list args2;
   va_start(args, fmt);
+  va_copy(args2, args);
 
   int bytes =
       vsnprintf(ctx->buf + ctx->size, ctx->capacity - ctx->size, fmt, args);
@@ -111,12 +113,13 @@ void _grwprintf(grwprintf_t *ctx, char const *fmt, ...) {
     *ctx->memused += ctx->capacity;
     ctx->buf = (char *)realloc(ctx->buf, ctx->capacity);
     assert(ctx->buf != NULL);
-    bytes +=
-        vsnprintf(ctx->buf + ctx->size, ctx->capacity - ctx->size, fmt, args);
+    bytes =
+        vsnprintf(ctx->buf + ctx->size, ctx->capacity - ctx->size, fmt, args2);
   }
   ctx->size += bytes;
 
   va_end(args);
+  va_end(args2);
 }
 
 void _http_serialize_headers_list(http_response_t *response,
