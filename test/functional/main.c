@@ -1,8 +1,16 @@
 #define HTTPSERVER_IMPL
-#include "../httpserver.h"
+#include "../../build/src/httpserver.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <signal.h>
+#include <unistd.h>
 
 #define RESPONSE "Hello, World!"
+
+ssize_t hs_test_write(int fd, char const *data, size_t size) {
+  return write(fd, data, size);
+}
 
 int request_target_is(struct http_request_s* request, char const * target) {
   http_string_t url = http_request_target(request);

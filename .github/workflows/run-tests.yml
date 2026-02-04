@@ -1,0 +1,21 @@
+name: Run Tests
+
+on:
+  push:
+    branches: [ "master", "ragel-refactor" ]
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: make check-format
+      run: make check-format
+    - name: apt-get
+      run: sudo apt-get install -y apache2-utils ragel iwyu
+    - name: make
+      run: make
