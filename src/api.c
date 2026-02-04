@@ -1,6 +1,6 @@
+#include <assert.h>
 #include <stdlib.h>
 #include <string.h>
-#include <assert.h>
 
 #ifndef HTTPSERVER_IMPL
 #include "api.h"
@@ -133,10 +133,10 @@ void http_request_read_chunk(struct http_request_s *request,
   hs_request_begin_read(request);
 }
 
-http_string_t http_request_path(http_request_t* request) {
+http_string_t http_request_path(http_request_t *request) {
   http_string_t path = {0, 0};
   http_string_t target = http_request_target(request);
-  char* q = (char *)memchr(target.buf, '?', target.len);
+  char *q = (char *)memchr(target.buf, '?', target.len);
   if (q == NULL) {
     return target;
   }
@@ -145,10 +145,10 @@ http_string_t http_request_path(http_request_t* request) {
   return path;
 }
 
-http_string_t http_request_querystring(http_request_t* request) {
+http_string_t http_request_querystring(http_request_t *request) {
   http_string_t query = {0, 0};
   http_string_t target = http_request_target(request);
-  char* q = (char *)memchr(target.buf, '?', target.len);
+  char *q = (char *)memchr(target.buf, '?', target.len);
   if (q == NULL) {
     return query;
   }
@@ -165,8 +165,7 @@ void hs_token_array_init(struct hs_token_array_s *array, int capacity) {
   array->capacity = capacity;
 }
 
-void hs_token_array_push(struct hs_token_array_s *array,
-                          struct hsh_token_s a) {
+void hs_token_array_push(struct hs_token_array_s *array, struct hsh_token_s a) {
   if (array->size == array->capacity) {
     array->capacity *= 2;
     array->buf = (struct hsh_token_s *)realloc(
@@ -177,7 +176,7 @@ void hs_token_array_push(struct hs_token_array_s *array,
   array->size++;
 }
 
-void hs_parse_querystring(http_request_t* request, http_string_t query) {
+void hs_parse_querystring(http_request_t *request, http_string_t query) {
   struct hsh_token_s tok = {HSH_TOK_QUERY_KEY, 0, 0, 0};
   if (request->query.buf != NULL) {
     return;
@@ -190,17 +189,16 @@ void hs_parse_querystring(http_request_t* request, http_string_t query) {
         tok.index = -1;
         tok.len = 0;
       }
-      tok.index = i+1;
+      tok.index = i + 1;
       tok.type = HSH_TOK_QUERY_KEY;
       continue;
-    }
-    else if (query.buf[i] == '=') {
+    } else if (query.buf[i] == '=') {
       if (tok.index != -1 && tok.type != HSH_TOK_QUERY_VAL) {
         hs_token_array_push(&request->query, tok);
         tok.index = -1;
         tok.len = 0;
       }
-      tok.index = i+1;
+      tok.index = i + 1;
       tok.type = HSH_TOK_QUERY_VAL;
       continue;
     }
@@ -220,17 +218,20 @@ int hs_case_cmp(const char *s1, int s1len, const char *s2, int s2len) {
   return memcmp(s1, s2, s1len);
 }
 
-http_string_t http_request_query(http_request_t* request, char const * key) {
+http_string_t http_request_query(http_request_t *request, char const *key) {
   http_string_t value = {0, 0};
   http_string_t query = http_request_querystring(request);
-  if (query.len == 0) return value;
-  if (key == NULL) return value;
+  if (query.len == 0)
+    return value;
+  if (key == NULL)
+    return value;
   size_t len = strlen(key);
-  if(len == 0) return  value;
+  if (len == 0)
+    return value;
 
   hs_parse_querystring(request, query);
 
-  for (int i = request->query.size-1; i >= 0; i--) {
+  for (int i = request->query.size - 1; i >= 0; i--) {
     struct hsh_token_s tok = request->query.buf[i];
     if (tok.type != HSH_TOK_QUERY_KEY) {
       continue;
@@ -238,10 +239,10 @@ http_string_t http_request_query(http_request_t* request, char const * key) {
     if (hs_case_cmp(&query.buf[tok.index], tok.len, key, len) == 0) {
       continue;
     }
-    if (i+1 >= request->query.size) {
+    if (i + 1 >= request->query.size) {
       return value;
     }
-    tok = request->query.buf[i+1];
+    tok = request->query.buf[i + 1];
     if (tok.type != HSH_TOK_QUERY_VAL) {
       return value;
     }
@@ -252,43 +253,27 @@ http_string_t http_request_query(http_request_t* request, char const * key) {
   return value;
 }
 
-int http_request_iterate_query(
-  http_request_t* request,
-  http_string_t* key,
-  http_string_t* val,
-  int* iter
-) {
+int http_request_iterate_query(http_request_t *request, http_string_t *key,
+                               http_string_t *val, int *iter) {
   http_string_t query = http_request_querystring(request);
   hs_parse_querystring(request, query);
-  for(; *iter < request->query.size; (*iter)++) {
+  for (; *iter < request->query.size; (*iter)++) {
     struct hsh_token_s token = request->query.buf[*iter];
     if (token.type != HSH_TOK_QUERY_KEY) {
       continue;
     }
-    *key = (http_string_t) {
-      .buf = &query.buf[token.index],
-      .len = token.len
-    };
-    if ((*iter)+1 >= request->query.size) {
-      *val = (http_string_t) {
-        .buf = NULL,
-        .len = 0
-      };
+    *key = (http_string_t){.buf = &query.buf[token.index], .len = token.len};
+    if ((*iter) + 1 >= request->query.size) {
+      *val = (http_string_t){.buf = NULL, .len = 0};
       return 1;
     }
     (*iter)++;
     token = request->query.buf[*iter];
     if (token.type != HSH_TOK_QUERY_VAL) {
-      *val = (http_string_t) {
-        .buf = NULL,
-        .len = 0
-      };
+      *val = (http_string_t){.buf = NULL, .len = 0};
       return 1;
     }
-    *val = (http_string_t) {
-      .buf = &query.buf[token.index],
-      .len = token.len
-    };
+    *val = (http_string_t){.buf = &query.buf[token.index], .len = token.len};
     return 1;
   }
   return 0;

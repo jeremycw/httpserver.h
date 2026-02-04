@@ -464,28 +464,26 @@ struct http_string_s http_request_chunk(struct http_request_s *request);
 
 // Returns the path component of the full request target as it was read
 // from the HTTP request line.
-struct http_string_s http_request_path(struct http_request_s* request);
+struct http_string_s http_request_path(struct http_request_s *request);
 
 // Returns the query string of the full request target as it was read from
 // the HTTP request line. Returns an empty string if there's no query
 // string.
-struct http_string_s http_request_querystring(struct http_request_s* request);
+struct http_string_s http_request_querystring(struct http_request_s *request);
 
 // Returns the value of the key in the query string of the full request target
 // as it was read from the HTTP request line. If the key can't be found, an
 // empty string is returned.
-struct http_string_s http_request_query(struct http_request_s* request, char const * key);
+struct http_string_s http_request_query(struct http_request_s *request,
+                                        char const *key);
 
 // Procedure used to iterate over all the query parameter. iter should be
 // initialized to zero before calling. Each call will set key and val to the
 // key and value of the next query parameter. Returns 0 when there are no more
 // query parameter.
-int http_request_iterate_query(
-  struct http_request_s* request,
-  struct http_string_s* key,
-  struct http_string_s* val,
-  int* iter
-);
+int http_request_iterate_query(struct http_request_s *request,
+                               struct http_string_s *key,
+                               struct http_string_s *val, int *iter);
 
 #ifdef __cplusplus
 }
