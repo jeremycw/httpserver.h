@@ -135,7 +135,7 @@ void http_request_read_chunk(struct http_request_s *request,
 
 http_string_t http_request_path(http_request_t* request) {
   http_string_t path = {0, 0};
-  http_string_t target = http_get_token_string(request, HS_TOK_TARGET);
+  http_string_t target = http_request_target(request);
   char* q = (char *)memchr(target.buf, '?', target.len);
   if (q == NULL) {
     return target;
@@ -178,7 +178,7 @@ void hs_token_array_push(struct hs_token_array_s *array,
 }
 
 void hs_parse_querystring(http_request_t* request, http_string_t query) {
-  struct hsh_token_s tok = {HS_TOK_QUERY_KEY, 0, 0, 0};
+  struct hsh_token_s tok = {HSH_TOK_QUERY_KEY, 0, 0, 0};
   if (request->query.buf != NULL) {
     return;
   }
