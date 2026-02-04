@@ -57,7 +57,9 @@ enum hsh_token_e {
   HSH_TOK_HEADERS_DONE,
   HSH_TOK_BODY,
   HSH_TOK_NONE,
-  HSH_TOK_ERR
+  HSH_TOK_ERR,
+  HSH_TOK_QUERY_KEY,
+  HSH_TOK_QUERY_VAL
 };
 
 struct hsh_token_s {
@@ -97,6 +99,7 @@ typedef struct http_request_s {
   struct hsh_buffer_s buffer;
   struct hsh_parser_s parser;
   struct hs_token_array_s tokens;
+  struct hs_token_array_s query;
   int state;
   int socket;
   int timeout;
