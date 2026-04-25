@@ -252,5 +252,4 @@ void hs_request_respond_error(http_request_t *request, int code,
   hs_response_set_header(response, "Content-Type", "text/plain");
   hs_response_set_body(response, message, strlen(message));
   hs_request_respond(request, response, http_write);
-  http_write(request);
 }

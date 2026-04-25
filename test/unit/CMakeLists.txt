@@ -1,6 +1,6 @@
 add_executable(
   unit-test-runner
-  munit.c test_parser.c test_read_socket.c test_write_socket.c main.c
+  munit.c test_parser.c test_read_socket.c test_write_socket.c test_respond.c test_request_util.c main.c
 )
 
 include(CheckFunctionExists)
