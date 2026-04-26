@@ -11,6 +11,7 @@ extern enum hs_test_write_mode_e hs_test_write_mode;
 
 void hs_test_enable_write_stub(int enabled);
 void hs_test_reset_capture(void);
+ssize_t hs_test_write(int fd, char const *data, size_t size);
 extern char* captured_write_buf;
 extern size_t captured_write_size;
 

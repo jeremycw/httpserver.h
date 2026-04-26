@@ -12,6 +12,10 @@ static int http_write_call_count = 0;
 
 static void test_http_write(struct http_request_s* request) {
   http_write_call_count++;
+  if (hs_test_write_mode == HS_TEST_WRITE_CAPTURE) {
+    hs_test_enable_write_stub(1);
+    hs_test_write(request->socket, request->buffer.buf, request->buffer.length);
+  }
 }
 
 static struct http_request_s* setup_test_request(void) {
@@ -111,7 +115,7 @@ MunitResult test_respond_large_body_capture(const MunitParameter params[], void*
   memset(large_body, 'X', 2048);
   hs_response_set_body(response, large_body, 2048);
 
-  hs_request_respond(request, response, hs_request_begin_write);
+  hs_request_respond(request, response, test_http_write);
 
   char* headers_end = strstr(captured_write_buf, "\r\n\r\n");
   munit_assert_ptr_not_null(headers_end);
@@ -124,6 +128,7 @@ MunitResult test_respond_large_body_capture(const MunitParameter params[], void*
 
   hs_test_enable_write_stub(0);
   hs_test_reset_capture();
+  destroy_test_request(request);
 
   return MUNIT_OK;
 }
@@ -156,7 +161,7 @@ MunitResult test_respond_grwprintf_truncation_bug(const MunitParameter params[],
   memset(body, 'Y', 64);
   hs_response_set_body(response, body, 64);
 
-  hs_request_respond(request, response, hs_request_begin_write);
+  hs_request_respond(request, response, test_http_write);
 
   munit_assert_ptr_not_null(captured_write_buf);
   munit_assert_size(captured_write_size, >, 0);
@@ -179,6 +184,7 @@ MunitResult test_respond_grwprintf_truncation_bug(const MunitParameter params[],
 
   hs_test_enable_write_stub(0);
   hs_test_reset_capture();
+  destroy_test_request(request);
 
   return MUNIT_OK;
 }
