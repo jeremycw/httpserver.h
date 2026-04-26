@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <sys/socket.h>
 #include <time.h>
+#include <unistd.h>
 
 #ifdef EPOLL
 #include <sys/epoll.h>
@@ -30,6 +31,7 @@ void _hs_bind_localhost(int s, struct sockaddr_in *addr, const char *ipaddr,
   addr->sin_port = htons(port);
   int rc = bind(s, (struct sockaddr *)addr, sizeof(struct sockaddr_in));
   if (rc < 0) {
+    close(s);
     exit(1);
   }
 }

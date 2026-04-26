@@ -27,13 +27,9 @@ check-format:
 	clang-format --style=LLVM --dry-run -Werror src/*.c
 
 fuzz: build
-	cd build; \
-	clang -g -fsanitize=fuzzer -DKQUEUE -I ../src -I ../build/src -o libfuzzer_test ../test/fuzz/fuzz_parser.c src/libhttpsrv.a 2>/dev/null || \
-	echo "libfuzzer not supported on this platform - use fuzz-random instead"; \
-	cd ..; \
-	cd ..; \
-	clang -g -O0 -DKQUEUE -I src -I build/src -o random_fuzz_test test/fuzz/random_parser.c build/src/libhttpsrv.a; \
-	./build/random_fuzz_test $(SEED)
+	cd build && clang -g -fsanitize=address -DKQUEUE -I ../src -I ../build/src -o libfuzzer_test ../test/fuzz/fuzz_harness.c src/libhttpsrv.a
+	clang -g -O0 -DKQUEUE -I src -I build/src -o random_fuzz_test test/fuzz/random_parser.c build/src/libhttpsrv.a
+	./random_fuzz_test $(SEED)
 
 clean:
 	@rm -rf build random_fuzz_test libfuzzer_test
