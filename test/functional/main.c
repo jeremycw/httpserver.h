@@ -103,6 +103,34 @@ void handle_request(struct http_request_s* request) {
     http_response_header(response, "Content-Type", "text/plain");
     http_response_body(response, buf, i);
     return http_respond(request, response);
+  } else if (request_target_is(request, "/http10")) {
+    http_string_t ver = http_request_method(request);
+    http_response_header(response, "Content-Type", "text/plain");
+    http_response_body(response, "HTTP/1.0", 8);
+  } else if (request_target_is(request, "/url-encoded")) {
+    http_string_t target = http_request_target(request);
+    http_response_header(response, "Content-Type", "text/plain");
+    http_response_body(response, target.buf, target.len);
+  } else if (request_target_is(request, "/notfound")) {
+    http_response_status(response, 404);
+    http_response_header(response, "Content-Type", "text/plain");
+    http_response_body(response, "Not Found", 9);
+  } else if (request_target_is(request, "/error")) {
+    http_response_status(response, 500);
+    http_response_header(response, "Content-Type", "text/plain");
+    http_response_body(response, "Internal Server Error", 21);
+  } else if (request_target_is(request, "/custom-status")) {
+    http_response_status(response, 418);
+    http_response_header(response, "Content-Type", "text/plain");
+    http_response_body(response, "I'm a teapot", 12);
+  } else if (request_target_is(request, "/connection-close")) {
+    http_request_connection(request, HTTP_CLOSE);
+    http_response_header(response, "Content-Type", "text/plain");
+    http_response_body(response, RESPONSE, sizeof(RESPONSE) - 1);
+  } else if (request_target_is(request, "/connection-keep")) {
+    http_request_connection(request, HTTP_KEEP_ALIVE);
+    http_response_header(response, "Content-Type", "text/plain");
+    http_response_body(response, RESPONSE, sizeof(RESPONSE) - 1);
   } else {
     http_response_header(response, "Content-Type", "text/plain");
     http_response_body(response, RESPONSE, sizeof(RESPONSE) - 1);

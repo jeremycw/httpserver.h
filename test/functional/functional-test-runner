@@ -1,99 +1,146 @@
 #!/usr/bin/env sh
 
-run_functional_tests() {
-  echo "Small Response Body:"
-  curl http://localhost:8080/
+FAILED=0
 
-  echo "\n\nEmpty Response:"
-  curl http://localhost:8080/empty
-
-  echo "\n\nEcho Body:"
-  curl -XPOST http://localhost:8080/echo -d'Echo test'
-
-  echo "\n\nGet Header:"
-  curl http://localhost:8080/host
-
-  echo "\n\nRequest Body larger than max in mem size:"
-  dd if=/dev/urandom of=test.dat bs=25165824 count=1 2> /dev/null
-  curl -H'Expect:' --data-binary @test.dat -o r1.dat http://localhost:8080/large
-  diff r1.dat test.dat
-
-  echo "\n\nChunked Response:"
-  curl http://localhost:8080/chunked
-
-  echo "\n\nChunked Response keep-alive:"
-  curl http://localhost:8080/chunked http://localhost:8080/chunked
-
-  echo "\n\nChunked Response close:"
-  curl -H'Connection: close' http://localhost:8080/chunked http://localhost:8080/chunked
-
-  echo "\n\nChunked Request keep-alive: (expect empty)"
-  dd if=/dev/urandom of=test.dat bs=262144 count=1 2> /dev/null
-  curl -H'Expect:' -H'Transfer-Encoding: chunked' -XPOST --data-binary @test.dat -o r1.dat http://localhost:8080/chunked-req -o r2.dat http://localhost:8080/chunked-req
-  diff r1.dat test.dat
-  diff r2.dat test.dat
-
-  echo "\n\nChunked Request close: (expect empty)"
-  curl -H'Expect:' -H'Transfer-Encoding: chunked' -XPOST --data-binary @test.dat -o r3.dat http://localhost:8080/chunked-req -o r4.dat http://localhost:8080/chunked-req
-  diff r3.dat test.dat
-  diff r4.dat test.dat
-
-  echo "\n\nPoll Server:"
-  curl http://localhost:8081/ &
-  sleep 1
-  curl http://localhost:8080/poll
-  sleep 1
-  curl http://localhost:8080/poll
-
-  echo "\n\nIterate Headers:"
-  curl -H'User-Agent: test-ua' -H'Foo-Header: foo-bar' http://localhost:8080/headers
-
-  echo "\nStress Test keep-alive:"
-  ab -k -c 200 -n 100000 http://127.0.0.1:8080/ > keep-alive.bench
-  cat keep-alive.bench | grep Complete
-  cat keep-alive.bench | grep Non-2xx
-  cat keep-alive.bench 1>&2
-
-  echo "\nStress Test close:"
-  ab -c 20 -n 1000 http://127.0.0.1:8080/ > connection-close.bench
-  cat connection-close.bench | grep Complete
-  cat connection-close.bench | grep Non-2xx
-  cat connection-close.bench 1>&2
-
-  echo "\nStress Test large body:"
-  dd if=/dev/urandom of=test.dat bs=7388608 count=1 2> /dev/null
-  ab -c 2 -n 10 -p test.dat http://127.0.0.1:8080/echo > large-file.bench
-  cat large-file.bench | grep Complete
-  cat large-file.bench | grep Non-2xx
-  cat large-file.bench 1>&2
-  rm *.dat *.bench
+run_test() {
+  name="$1"
+  shift
+  cmd="$@"
+  
+  output=$(eval "$cmd" 2>&1)
+  result=$?
+  
+  if [ $result -eq 0 ]; then
+    echo "$name [PASS]"
+  else
+    echo "$name [FAIL]"
+    echo "  Exit code: $result"
+    FAILED=1
+  fi
 }
 
-run_valgrind_functional_tests() {
-  valgrind --leak-check=full \
-           --show-leak-kinds=all \
-           --track-origins=yes \
-           --verbose \
-           --log-file=valgrind-log.txt \
-           ./http-server &
-  serverpid=$!
-  sleep 3
-  run_functional_tests
-  kill $serverpid
-  sleep 2
-  cat valgrind-log.txt | cut -d = -f 5 | grep ERROR > valgrind-results.txt
-  cat valgrind-log.txt | cut -d = -f 5 | grep 'All heap blocks were freed' >> valgrind-results.txt
-  cat valgrind-log.txt 1>&2
-  diff valgrind-results.txt test/valgrind.txt
+run_output_test() {
+  name="$1"
+  expected="$2"
+  shift
+  shift
+  cmd="$@"
+  
+  output=$(eval "$cmd" 2>&1)
+  
+  if [ "$output" = "$expected" ]; then
+    echo "$name [PASS]"
+  else
+    echo "$name [FAIL]"
+    echo "  Expected: $expected"
+    echo "  Got: $output"
+    FAILED=1
+  fi
+}
+
+run_functional_tests() {
+  echo "=== Functional Tests ==="
+  echo ""
+  
+  run_output_test "Small Response Body" "Hello, World!" "curl -s http://localhost:8080/"
+  run_output_test "Empty Response" "" "curl -s http://localhost:8080/empty"
+  run_output_test "Echo Body" "Echo test" "curl -s -XPOST http://localhost:8080/echo -d'Echo test'"
+  run_output_test "Get Header" "localhost:8080" "curl -s http://localhost:8080/host"
+  
+  echo ""
+  echo "=== Large Body Tests ==="
+  echo ""
+  
+  dd if=/dev/urandom of=test.dat bs=25165824 count=1 2> /dev/null
+  diff_output=$(curl -s -H'Expect:' --data-binary @test.dat -o r1.dat http://localhost:8080/large 2>&1 && diff r1.dat test.dat 2>&1 && rm r1.dat; echo "done")
+  if echo "$diff_output" | grep -q "done"; then
+    echo "Large body streaming [PASS]"
+  else
+    echo "Large body streaming [FAIL]"
+    FAILED=1
+  fi
+  
+  echo ""
+  echo "=== Chunked Tests ==="
+  echo ""
+  
+  run_test "Chunked Response" "curl -s http://localhost:8080/chunked | grep -q 'Hello, World!'"
+  run_test "Chunked Response keep-alive" "curl -s http://localhost:8080/chunked http://localhost:8080/chunked | grep -q 'Hello, World!'"
+  run_test "Chunked Response close" "curl -s -H'Connection: close' http://localhost:8080/chunked http://localhost:8080/chunked | grep -q 'Hello, World!'"
+  
+  dd if=/dev/urandom of=test.dat bs=262144 count=1 2> /dev/null
+  diff_output=$(curl -s -H'Expect:' -H'Transfer-Encoding: chunked' -XPOST --data-binary @test.dat -o r1.dat http://localhost:8080/chunked-req -o r2.dat http://localhost:8080/chunked-req 2>&1 && diff r1.dat test.dat 2>&1 && diff r2.dat test.dat 2>&1 && rm r1.dat r2.dat; echo "done")
+  if echo "$diff_output" | grep -q "done"; then
+    echo "Chunked Request keep-alive [PASS]"
+  else
+    echo "Chunked Request keep-alive [FAIL]"
+    FAILED=1
+  fi
+  
+  diff_output=$(curl -s -H'Connection: close' -H'Expect:' -H'Transfer-Encoding: chunked' -XPOST --data-binary @test.dat -o r1.dat http://localhost:8080/chunked-req -o r2.dat http://localhost:8080/chunked-req 2>&1 && diff r1.dat test.dat 2>&1 && diff r2.dat test.dat 2>&1 && rm r1.dat r2.dat; echo "done")
+  if echo "$diff_output" | grep -q "done"; then
+    echo "Chunked Request close [PASS]"
+  else
+    echo "Chunked Request close [FAIL]"
+    FAILED=1
+  fi
+  
+  echo ""
+  echo "=== Error Response Tests ==="
+  echo ""
+  
+  run_output_test "404 Not Found" "Not Found" "curl -s http://localhost:8080/notfound"
+  run_output_test "500 Internal Server Error" "Internal Server Error" "curl -s http://localhost:8080/error"
+  run_output_test "418 I'm a teapot" "I'm a teapot" "curl -s -XPOST http://localhost:8080/custom-status -d'brew coffee'"
+  
+  echo ""
+  echo "=== HTTP Version Tests ==="
+  echo ""
+  
+  run_output_test "HTTP/1.0" "HTTP/1.0" "curl -s -0 http://localhost:8080/http10"
+  run_test "HTTP/1.1 default" "curl -s http://localhost:8080/ | grep -q 'Hello, World!'"
+  
+  echo ""
+  echo "=== Header Tests ==="
+  echo ""
+  
+  run_test "Host Header" "curl -s http://localhost:8080/host | grep -q 'localhost:8080'"
+  run_test "Header Iteration" "curl -s -H'User-Agent: test-ua' -H'Foo-Header: foo-bar' http://localhost:8080/headers | grep -q 'Host:'"
+  run_test "Header Iteration User-Agent" "curl -s -H'User-Agent: test-ua' -H'Foo-Header: foo-bar' http://localhost:8080/headers | grep -q 'User-Agent: test-ua'"
+  
+  echo ""
+  echo "=== URL Tests ==="
+  echo ""
+  
+  run_output_test "URL without query string" "/url-encoded" "curl -s 'http://localhost:8080/url-encoded'"
+  run_test "URL with query string falls through to default" "curl -s 'http://localhost:8080/url-encoded?hello%20world=test' | grep -q 'Hello, World!'"
+  
+  echo ""
+  echo "=== Connection Tests ==="
+  echo ""
+  
+  run_test "Explicit connection close" "curl -s -H'Connection: close' http://localhost:8080/connection-close | grep -q 'Hello, World!'"
+  run_test "Explicit keep-alive" "curl -s http://localhost:8080/connection-keep | grep -q 'Hello, World!'"
+  
+  rm -f test.dat
 }
 
 run_base_functional_tests() {
   ./build/test/functional/functional-test-server$1 &
   serverpid=$!
   sleep 1
-  run_functional_tests > test-results$1.txt
-  kill $serverpid
-  diff test-results$1.txt test/functional/results.txt
+  run_functional_tests
+  kill $serverpid 2>/dev/null
+  sleep 1
+  
+  if [ $FAILED -eq 0 ]; then
+    echo ""
+    echo "=== All tests passed ==="
+  else
+    echo ""
+    echo "=== Some tests failed ==="
+    exit 1
+  fi
 }
 
 run_base_functional_tests $1

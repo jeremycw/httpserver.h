@@ -1,4 +1,4 @@
-.PHONY: test clean format check-format debug
+.PHONY: test clean format check-format debug fuzz-random fuzz-libfuzzer
 
 test: test-unit test-functional test-functional-cpp
 
@@ -13,7 +13,7 @@ test-functional-cpp: debug
 
 debug: build
 	cd build; \
-	cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_INCLUDE_WHAT_YOU_USE="include-what-you-use;-Xiwyu;--mapping_file=$(shell pwd)/iwyu.imp" ..; \
+	cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_INCLUDE_WHAT_YOU_USE="include-what-you-use;-Xiwyu;--mapping_file=../iwyu.imp" ..; \
 	make; \
 	cd ..;
 
@@ -25,6 +25,18 @@ format:
 
 check-format:
 	clang-format --style=LLVM --dry-run -Werror src/*.c
+
+fuzz-random: build
+	cd build; \
+	clang -g -O0 -DKQUEUE -I ../src -I ../build/src -o random_fuzz_test ../test/fuzz/random_parser.c src/libhttpsrv.a; \
+	cd ..; \
+	./build/random_fuzz_test $(SEED)
+
+fuzz-libfuzzer: build
+	cd build; \
+	clang -g -O1 -fsanitize=fuzzer -DKQUEUE -I ../src -I ../build/src -o libfuzzer_test ../test/fuzz/fuzz_parser.c src/libhttpsrv.a 2>/dev/null || \
+	echo "libfuzzer not supported on this platform"; \
+	cd ..;
 
 clean:
 	@rm -rf build

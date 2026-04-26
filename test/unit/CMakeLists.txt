@@ -15,4 +15,6 @@ if(EPOLL)
   target_compile_definitions(unit-test-runner PRIVATE "EPOLL")
 endif()
 
+target_compile_definitions(unit-test-runner PRIVATE "DEBUG")
+
 target_link_libraries(unit-test-runner PUBLIC httpsrv)

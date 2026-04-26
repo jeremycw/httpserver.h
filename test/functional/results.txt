@@ -37,6 +37,27 @@ Accept: */*
 User-Agent: test-ua
 Foo-Header: foo-bar
 
+HTTP/1.0 Request:
+HTTP/1.0
+
+URL Encoded:
+/url-encoded?hello%20world=test
+
+404 Not Found:
+Not Found
+
+500 Internal Server Error:
+Internal Server Error
+
+418 I'm a Teapot:
+I'm a teapot
+
+Connection: close explicit:
+Hello, World!
+
+Connection: keep-alive explicit:
+Hello, World!
+
 Stress Test keep-alive:
 Complete requests:      100000
 

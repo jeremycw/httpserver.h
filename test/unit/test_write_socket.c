@@ -7,14 +7,24 @@
 
 enum hs_test_write_mode_e {
   HS_TEST_WRITE_SUCCESS,
-  HS_TEST_WRITE_PARTIAL
+  HS_TEST_WRITE_PARTIAL,
+  HS_TEST_WRITE_CAPTURE
 };
 
-static enum hs_test_write_mode_e hs_test_write_mode;
+enum hs_test_write_mode_e hs_test_write_mode;
 static int write_stub_enabled = 0;
+
+char* captured_write_buf = NULL;
+size_t captured_write_size = 0;
 
 void hs_test_enable_write_stub(int enabled) {
   write_stub_enabled = enabled;
+}
+
+void hs_test_reset_capture(void) {
+  free(captured_write_buf);
+  captured_write_buf = NULL;
+  captured_write_size = 0;
 }
 
 ssize_t hs_test_write(int fd, char const *data, size_t size) {
@@ -24,6 +34,11 @@ ssize_t hs_test_write(int fd, char const *data, size_t size) {
         return size;
       case HS_TEST_WRITE_PARTIAL:
         return size / 2;
+      case HS_TEST_WRITE_CAPTURE:
+        captured_write_buf = realloc(captured_write_buf, captured_write_size + size);
+        memcpy(captured_write_buf + captured_write_size, data, size);
+        captured_write_size += size;
+        return size;
     }
     return 0;
   } else {

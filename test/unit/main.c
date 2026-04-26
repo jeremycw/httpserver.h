@@ -19,6 +19,8 @@ static MunitTest tests[] = {
   {(char*)"/write_socket/partial", test_write_socket_partial, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
   {(char*)"/respond/error_single_write", test_respond_error_single_write, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
   {(char*)"/respond/error_status_range", test_respond_error_status_range, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
+  {(char*)"/respond/large_body_capture", test_respond_large_body_capture, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
+  {(char*)"/respond/grwprintf_truncation_bug", test_respond_grwprintf_truncation_bug, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
   {(char*)"/request_util/keep_alive_http_1_1", test_request_keep_alive_http_1_1, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
   {(char*)"/request_util/keep_alive_http_1_0", test_request_keep_alive_http_1_0, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
   {NULL, NULL, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL}
