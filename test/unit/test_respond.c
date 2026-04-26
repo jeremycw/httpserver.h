@@ -14,7 +14,7 @@ static void test_http_write(struct http_request_s* request) {
   http_write_call_count++;
 }
 
-static struct http_request_s* setup_test_request() {
+static struct http_request_s* setup_test_request(void) {
   struct http_request_s* request = calloc(1, sizeof(struct http_request_s));
   request->server = calloc(1, sizeof(struct http_server_s));
 
@@ -25,10 +25,6 @@ static struct http_request_s* setup_test_request() {
 }
 
 static void destroy_test_request(struct http_request_s* request) {
-  if (request->server) {
-    free(request->server);
-    request->server = NULL;
-  }
   if (request->buffer.buf) {
     free(request->buffer.buf);
     request->buffer.buf = NULL;
@@ -37,6 +33,8 @@ static void destroy_test_request(struct http_request_s* request) {
     free(request->tokens.buf);
     request->tokens.buf = NULL;
   }
+  free(request->server);
+  request->server = NULL;
   free(request);
 }
 
