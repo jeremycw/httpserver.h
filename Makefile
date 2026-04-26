@@ -27,9 +27,8 @@ check-format:
 	clang-format --style=LLVM --dry-run -Werror src/*.c
 
 fuzz: build
-	cd build && clang -g -fsanitize=address -DKQUEUE -I ../src -I ../build/src -o libfuzzer_test ../test/fuzz/fuzz_harness.c src/libhttpsrv.a
 	clang -g -O0 -DKQUEUE -I src -I build/src -o random_fuzz_test test/fuzz/random_parser.c build/src/libhttpsrv.a
 	./random_fuzz_test $(SEED)
 
 clean:
-	@rm -rf build random_fuzz_test libfuzzer_test
+	@rm -rf build random_fuzz_test
