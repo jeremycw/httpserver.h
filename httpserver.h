@@ -647,7 +647,9 @@ static inline void _hs_buffer_free(struct hsh_buffer_s *buffer,
 #ifndef HS_REQUEST_UTIL_H
 #define HS_REQUEST_UTIL_H
 
+#ifndef HTTPSERVER_IMPL
 #include "common.h"
+#endif
 
 // http version indicators
 #define HTTP_1_0 0
@@ -1172,7 +1174,7 @@ http_string_t hs_request_chunk(struct http_request_s *request) {
 
 #line 1 "parser.c"
 
-#line 1 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
+#line 1 "/Users/jeremycw/code/httpserver.h/src/parser.rl"
 #include <string.h>
 #include <stdlib.h>
 
@@ -1193,11 +1195,11 @@ http_string_t hs_request_chunk(struct http_request_s *request) {
   parser->limit_max = max_len;
 
 
-#line 232 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
+#line 232 "/Users/jeremycw/code/httpserver.h/src/parser.rl"
 
 
 
-#line 28 "/Users/jeremywilliams/code/httpserver.h/build/src/parser.c"
+#line 28 "/Users/jeremycw/code/httpserver.h/build/src/parser.c"
 static const char _hsh_http_actions[] = {
 	0, 1, 2, 1, 6, 1, 10, 1, 
 	13, 1, 14, 1, 15, 1, 16, 1, 
@@ -1524,7 +1526,7 @@ static const int hsh_http_en_large_body = 89;
 static const int hsh_http_en_main = 1;
 
 
-#line 235 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
+#line 235 "/Users/jeremycw/code/httpserver.h/src/parser.rl"
 
 void hsh_parser_init(struct hsh_parser_s* parser) {
   memset(parser, 0, sizeof(struct hsh_parser_s));
@@ -1542,7 +1544,7 @@ struct hsh_token_s hsh_parser_exec(struct hsh_parser_s* parser, struct hsh_buffe
   char *p = buffer->buf + buffer->index;
   char *pe = buffer->buf + buffer->length;
   
-#line 373 "/Users/jeremywilliams/code/httpserver.h/build/src/parser.c"
+#line 373 "/Users/jeremycw/code/httpserver.h/build/src/parser.c"
 	{
 	int _klen;
 	unsigned int _trans;
@@ -1617,27 +1619,27 @@ _match:
 		switch ( *_acts++ )
 		{
 	case 0:
-#line 23 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
+#line 23 "/Users/jeremycw/code/httpserver.h/src/parser.rl"
 	{ HSH_ENTER_TOKEN(HSH_TOK_METHOD, 32) }
 	break;
 	case 1:
-#line 24 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
+#line 24 "/Users/jeremycw/code/httpserver.h/src/parser.rl"
 	{ HSH_ENTER_TOKEN(HSH_TOK_TARGET, 1024) }
 	break;
 	case 2:
-#line 25 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
+#line 25 "/Users/jeremycw/code/httpserver.h/src/parser.rl"
 	{ HSH_ENTER_TOKEN(HSH_TOK_VERSION, 16) }
 	break;
 	case 3:
-#line 26 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
+#line 26 "/Users/jeremycw/code/httpserver.h/src/parser.rl"
 	{ HSH_ENTER_TOKEN(HSH_TOK_HEADER_KEY, 256) }
 	break;
 	case 4:
-#line 27 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
+#line 27 "/Users/jeremycw/code/httpserver.h/src/parser.rl"
 	{ HSH_ENTER_TOKEN(HSH_TOK_HEADER_VALUE, 4096) }
 	break;
 	case 5:
-#line 28 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
+#line 28 "/Users/jeremycw/code/httpserver.h/src/parser.rl"
 	{
     parser->token.type = HSH_TOK_BODY;
     parser->token.flags = 0;
@@ -1645,7 +1647,7 @@ _match:
   }
 	break;
 	case 6:
-#line 33 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
+#line 33 "/Users/jeremycw/code/httpserver.h/src/parser.rl"
 	{
     parser->token.len = p - (buffer->buf + parser->token.index);
     // hsh_token_array_push(&parser->tokens, parser->token);
@@ -1654,27 +1656,27 @@ _match:
   }
 	break;
 	case 7:
-#line 40 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
+#line 40 "/Users/jeremycw/code/httpserver.h/src/parser.rl"
 	{
     parser->content_length *= 10;
     parser->content_length += (*p) - '0';
   }
 	break;
 	case 8:
-#line 45 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
+#line 45 "/Users/jeremycw/code/httpserver.h/src/parser.rl"
 	{
     HTTP_FLAG_SET(parser->flags, HSH_P_FLAG_CHUNKED);
   }
 	break;
 	case 9:
-#line 49 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
+#line 49 "/Users/jeremycw/code/httpserver.h/src/parser.rl"
 	{
     parser->limit_count = 0;
     parser->limit_max = 256;
   }
 	break;
 	case 10:
-#line 54 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
+#line 54 "/Users/jeremycw/code/httpserver.h/src/parser.rl"
 	{
     parser->limit_count++;
     if (parser->limit_count > parser->limit_max) {
@@ -1684,7 +1686,7 @@ _match:
   }
 	break;
 	case 11:
-#line 62 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
+#line 62 "/Users/jeremycw/code/httpserver.h/src/parser.rl"
 	{
     buffer->after_headers_index = p - buffer->buf + 1;
     parser->content_remaining = parser->content_length;
@@ -1715,13 +1717,13 @@ _match:
   }
 	break;
 	case 12:
-#line 91 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
+#line 91 "/Users/jeremycw/code/httpserver.h/src/parser.rl"
 	{
     parser->content_length = 0;
   }
 	break;
 	case 13:
-#line 95 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
+#line 95 "/Users/jeremycw/code/httpserver.h/src/parser.rl"
 	{
     if ((*p) >= 'A' && (*p) <= 'F') {
       parser->content_length *= 0x10;
@@ -1736,7 +1738,7 @@ _match:
   }
 	break;
 	case 14:
-#line 108 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
+#line 108 "/Users/jeremycw/code/httpserver.h/src/parser.rl"
 	{
     char* last_body_byte = buffer->buf + parser->token.index + parser->content_length - 1;
     if (pe >= last_body_byte) {
@@ -1760,7 +1762,7 @@ _match:
   }
 	break;
 	case 15:
-#line 130 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
+#line 130 "/Users/jeremycw/code/httpserver.h/src/parser.rl"
 	{
     // write 0 byte body to tokens
     parser->token.type = HSH_TOK_BODY;
@@ -1773,7 +1775,7 @@ _match:
   }
 	break;
 	case 16:
-#line 141 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
+#line 141 "/Users/jeremycw/code/httpserver.h/src/parser.rl"
 	{
     parser->token.index = buffer->after_headers_index;
     parser->token.len = parser->content_length;
@@ -1789,7 +1791,7 @@ _match:
   }
 	break;
 	case 17:
-#line 155 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
+#line 155 "/Users/jeremycw/code/httpserver.h/src/parser.rl"
 	{
     parser->token.index = buffer->after_headers_index;
     char* last_body_byte = buffer->buf + buffer->after_headers_index + parser->content_remaining - 1;
@@ -1812,13 +1814,13 @@ _match:
   }
 	break;
 	case 18:
-#line 176 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
+#line 176 "/Users/jeremycw/code/httpserver.h/src/parser.rl"
 	{
     // parser->rc = (int8_t)HSH_PARSER_ERR;
     {p++; goto _out; }
   }
 	break;
-#line 649 "/Users/jeremywilliams/code/httpserver.h/build/src/parser.c"
+#line 649 "/Users/jeremycw/code/httpserver.h/build/src/parser.c"
 		}
 	}
 
@@ -1835,13 +1837,13 @@ _again:
 	while ( __nacts-- > 0 ) {
 		switch ( *__acts++ ) {
 	case 18:
-#line 176 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
+#line 176 "/Users/jeremycw/code/httpserver.h/src/parser.rl"
 	{
     // parser->rc = (int8_t)HSH_PARSER_ERR;
     {p++; goto _out; }
   }
 	break;
-#line 672 "/Users/jeremywilliams/code/httpserver.h/build/src/parser.c"
+#line 672 "/Users/jeremycw/code/httpserver.h/build/src/parser.c"
 		}
 	}
 	}
@@ -1849,7 +1851,7 @@ _again:
 	_out: {}
 	}
 
-#line 252 "/Users/jeremywilliams/code/httpserver.h/src/parser.rl"
+#line 252 "/Users/jeremycw/code/httpserver.h/src/parser.rl"
   parser->state = cs;
   buffer->index = p - buffer->buf;
   if (HTTP_FLAG_CHECK(parser->flags, HSH_P_FLAG_TOKEN_READY)) {
@@ -2126,12 +2128,14 @@ void _grwprintf(grwprintf_t *ctx, char const *fmt, ...) {
   int bytes =
       vsnprintf(ctx->buf + ctx->size, ctx->capacity - ctx->size, fmt, args);
   if (bytes + ctx->size > ctx->capacity) {
+    va_end(args);
     *ctx->memused -= ctx->capacity;
     while (bytes + ctx->size > ctx->capacity)
       ctx->capacity *= 2;
     *ctx->memused += ctx->capacity;
     ctx->buf = (char *)realloc(ctx->buf, ctx->capacity);
     assert(ctx->buf != NULL);
+    va_start(args, fmt);
     bytes +=
         vsnprintf(ctx->buf + ctx->size, ctx->capacity - ctx->size, fmt, args);
   }
@@ -2273,7 +2277,6 @@ void hs_request_respond_error(http_request_t *request, int code,
   hs_response_set_header(response, "Content-Type", "text/plain");
   hs_response_set_body(response, message, strlen(message));
   hs_request_respond(request, response, http_write);
-  http_write(request);
 }
 
 #line 1 "server.c"
@@ -2285,6 +2288,7 @@ void hs_request_respond_error(http_request_t *request, int code,
 #include <stdlib.h>
 #include <sys/socket.h>
 #include <time.h>
+#include <unistd.h>
 
 #ifdef EPOLL
 #include <sys/epoll.h>
@@ -2309,6 +2313,7 @@ void _hs_bind_localhost(int s, struct sockaddr_in *addr, const char *ipaddr,
   addr->sin_port = htons(port);
   int rc = bind(s, (struct sockaddr *)addr, sizeof(struct sockaddr_in));
   if (rc < 0) {
+    close(s);
     exit(1);
   }
 }
