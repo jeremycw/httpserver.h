@@ -1,17 +1,12 @@
 #include <unistd.h>
 #include <stdlib.h>
+#include <string.h>
 #include "munit.h"
 
 #include "write_socket.h"
 #include "common.h"
+#include "test_write_socket.h"
 
-enum hs_test_write_mode_e {
-  HS_TEST_WRITE_SUCCESS,
-  HS_TEST_WRITE_PARTIAL,
-  HS_TEST_WRITE_CAPTURE
-};
-
-enum hs_test_write_mode_e hs_test_write_mode;
 static int write_stub_enabled = 0;
 
 char* captured_write_buf = NULL;
