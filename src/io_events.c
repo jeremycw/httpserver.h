@@ -1,5 +1,3 @@
-#include <stdlib.h>
-
 #ifdef KQUEUE
 #include <sys/event.h>
 #else

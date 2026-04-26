@@ -3,12 +3,13 @@
 #include <string.h>
 #include "munit.h"
 
+#include "test_write_socket.h"
 #include "write_socket.h"
 #include "common.h"
-#include "test_write_socket.h"
 
 static int write_stub_enabled = 0;
 
+enum hs_test_write_mode_e hs_test_write_mode;
 char* captured_write_buf = NULL;
 size_t captured_write_size = 0;
 
