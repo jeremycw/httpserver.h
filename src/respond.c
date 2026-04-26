@@ -105,12 +105,14 @@ void _grwprintf(grwprintf_t *ctx, char const *fmt, ...) {
   int bytes =
       vsnprintf(ctx->buf + ctx->size, ctx->capacity - ctx->size, fmt, args);
   if (bytes + ctx->size > ctx->capacity) {
+    va_end(args);
     *ctx->memused -= ctx->capacity;
     while (bytes + ctx->size > ctx->capacity)
       ctx->capacity *= 2;
     *ctx->memused += ctx->capacity;
     ctx->buf = (char *)realloc(ctx->buf, ctx->capacity);
     assert(ctx->buf != NULL);
+    va_start(args, fmt);
     bytes +=
         vsnprintf(ctx->buf + ctx->size, ctx->capacity - ctx->size, fmt, args);
   }
