@@ -1,4 +1,4 @@
-.PHONY: test clean format check-format debug fuzz-random fuzz-libfuzzer
+.PHONY: test clean format check-format debug fuzz
 
 test: test-unit test-functional test-functional-cpp
 
@@ -26,17 +26,14 @@ format:
 check-format:
 	clang-format --style=LLVM --dry-run -Werror src/*.c
 
-fuzz-random: build
+fuzz: build
 	cd build; \
-	clang -g -O0 -DKQUEUE -I ../src -I ../build/src -o random_fuzz_test ../test/fuzz/random_parser.c src/libhttpsrv.a; \
+	clang -g -fsanitize=fuzzer -DKQUEUE -I ../src -I ../build/src -o libfuzzer_test ../test/fuzz/fuzz_parser.c src/libhttpsrv.a 2>/dev/null || \
+	echo "libfuzzer not supported on this platform - use fuzz-random instead"; \
 	cd ..; \
+	cd ..; \
+	clang -g -O0 -DKQUEUE -I src -I build/src -o random_fuzz_test test/fuzz/random_parser.c build/src/libhttpsrv.a; \
 	./build/random_fuzz_test $(SEED)
 
-fuzz-libfuzzer: build
-	cd build; \
-	clang -g -O1 -fsanitize=fuzzer -DKQUEUE -I ../src -I ../build/src -o libfuzzer_test ../test/fuzz/fuzz_parser.c src/libhttpsrv.a 2>/dev/null || \
-	echo "libfuzzer not supported on this platform"; \
-	cd ..;
-
 clean:
-	@rm -rf build
+	@rm -rf build random_fuzz_test libfuzzer_test
