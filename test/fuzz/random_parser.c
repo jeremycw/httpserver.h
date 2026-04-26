@@ -300,7 +300,7 @@ int main(int argc, char** argv) {
 
   printf("Running enhanced fuzz tests...\n");
 
-  int tests_per_category = 500;
+  int tests_per_category = 5000;
 
   struct {
     enum mutation_category cat;
